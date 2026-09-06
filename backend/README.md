@@ -7,6 +7,17 @@ uv sync
 uv run uvicorn backend.main:app --reload
 ```
 
+Persistence uses SQLAlchemy. The server reads its database connection from
+`DATABASE_URL`; if it is unset, it uses `sqlite:///./chessdesk.db` in the
+repository root. For example:
+
+```bash
+DATABASE_URL=sqlite:///./data/chessdesk.db uv run uvicorn backend.main:app --reload
+```
+
+`DATABASE_URL` accepts any SQLAlchemy database URL, so a PostgreSQL URL can be
+used later without changing the application repository layer.
+
 The API is available at `http://127.0.0.1:8000/api/v1`; interactive docs are at
 `/api/v1/docs`.
 
@@ -20,6 +31,5 @@ Run tests with:
 uv run pytest
 ```
 
-All persistence and notification delivery are intentionally in memory for this
-MVP. Restarting the process resets the seeded data.
-
+On first startup, the database tables are created and the demo data is seeded
+when the database is empty. Subsequent restarts preserve application data.
