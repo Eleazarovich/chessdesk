@@ -551,6 +551,7 @@ class Store:
                 id="coach-001", email="thabo@chessops.co.za", name="Thabo Nkosi",
                 password_hash=hash_password("chess2026!"),
             ))
+            db.flush()
 
             clients = [
                 ("client-001", "individual", "Amahle Dlamini", "parent.dlamini@gmail.com", "+27 73 112 3344", "whatsapp", True, "Keen learner, preparing for U14 provincials.", True),
@@ -567,6 +568,7 @@ class Store:
                     preferred_communication=preference, notifications_enabled=enabled,
                     notes=notes, active=active,
                 ))
+            db.flush()
 
             for client_id, student_name, school_name, parent_name in [
                 ("client-001", "Amahle Dlamini", "Rosebank College Prep", "Zanele Dlamini"),
@@ -608,6 +610,7 @@ class Store:
                     planned_duration=planned, actual_duration=actual,
                     session_type=session_type, location=location, status=status, notes=notes,
                 ))
+            db.flush()
 
             invoices = [
                 ("inv-001", "client-001", "2026-08-31", "2026-09-07", 800, "August sessions — Amahle Dlamini (2 sessions)", "unpaid", None, None, "", ""),
@@ -626,6 +629,7 @@ class Store:
                     paid_date=date.fromisoformat(paid_date) if paid_date else None,
                     payment_method=payment_method, payment_reference=reference, notes=notes,
                 ))
+            db.flush()
             for invoice_id, session_ids in {
                 "inv-001": ["session-005", "session-010"],
                 "inv-002": ["session-006", "session-011"],
