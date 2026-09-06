@@ -1,0 +1,2 @@
+"""ChessDesk backend package."""
+
