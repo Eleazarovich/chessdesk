@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { expenseService } from '@/lib/services/expenseService';
+import { authService } from '@/lib/services/authService';
 import type { Expense, ExpenseCategory } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
 import { Receipt, Plus, Trash2, Edit2 } from 'lucide-react';
@@ -83,7 +84,9 @@ function ExpenseModal({ open, onClose, onSuccess, editExpense }: ExpenseModalPro
       if (isEdit && editExpense) {
         result = await expenseService.updateExpense(editExpense.id, form);
       } else {
-        result = await expenseService.createExpense({ ...form, coach_id: 'coach-001' });
+        const coachId = authService.getCurrentCoachId();
+        if (!coachId) throw new Error('Authentication required');
+        result = await expenseService.createExpense({ ...form, coach_id: coachId });
       }
       onSuccess(result);
     } catch {
@@ -146,7 +149,12 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    expenseService.getExpenses('coach-001').then(data => {
+    const coachId = authService.getCurrentCoachId();
+    if (!coachId) {
+      setLoading(false);
+      return;
+    }
+    expenseService.getExpenses(coachId).then(data => {
       if (cancelled) return;
       setExpenses(data.sort((a, b) => b.date.localeCompare(a.date)));
       setLoading(false);

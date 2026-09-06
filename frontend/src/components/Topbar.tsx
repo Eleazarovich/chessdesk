@@ -3,9 +3,11 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Menu, Bell, Search, LogOut, X, Users, ClipboardList, FileText, ChevronRight } from 'lucide-react';
 import AppLogo from './ui/AppLogo';
 import { authService } from '@/lib/services/authService';
+import { clientService } from '@/lib/services/clientService';
+import { sessionService } from '@/lib/services/sessionService';
+import { invoiceService } from '@/lib/services/invoiceService';
 import { useRouter } from 'next/navigation';
-import type { AuthUser } from '@/lib/types';
-import { MOCK_CLIENTS, MOCK_SESSIONS, MOCK_INVOICES } from '@/lib/services/mockData';
+import type { AuthUser, ClientWithDetails, Invoice, Session } from '@/lib/types';
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -20,7 +22,7 @@ interface SearchResult {
   href: string;
 }
 
-interface MockNotification {
+interface NotificationItem {
   id: string;
   title: string;
   body: string;
@@ -29,29 +31,20 @@ interface MockNotification {
   type: 'payment' | 'session' | 'invoice' | 'system';
 }
 
-const MOCK_NOTIFICATIONS: MockNotification[] = [
-  { id: 'n1', title: 'Payment received', body: 'Amahle Dlamini paid R800 for August sessions.', time: '2 min ago', read: false, type: 'payment' },
-  { id: 'n2', title: 'Session reminder', body: 'Session with Liam van der Berg starts in 1 hour.', time: '58 min ago', read: false, type: 'session' },
-  { id: 'n3', title: 'Invoice overdue', body: 'Invoice #inv-003 for Greenfields Primary is 7 days overdue.', time: '3 hrs ago', read: false, type: 'invoice' },
-  { id: 'n4', title: 'New client registered', body: 'Sipho Mokoena completed registration.', time: 'Yesterday', read: true, type: 'system' },
-  { id: 'n5', title: 'Invoice sent', body: 'Invoice #inv-007 sent to Sunridge High School.', time: '2 days ago', read: true, type: 'invoice' },
-];
-
-const notifColor: Record<MockNotification['type'], string> = {
+const notifColor: Record<NotificationItem['type'], string> = {
   payment: 'var(--success)',
   session: 'var(--primary)',
   invoice: 'var(--warning)',
   system: 'var(--foreground-subtle)',
 };
 
-// Build a client id → name lookup once
-const clientNameMap: Record<string, string> = {};
-MOCK_CLIENTS.forEach(c => { clientNameMap[c.id] = c.display_name; });
-
 export default function Topbar({ onMenuClick }: TopbarProps) {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [clients, setClients] = useState<ClientWithDetails[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,11 +54,29 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
   // Notification state
   const [notifOpen, setNotifOpen] = useState(false);
-  const [notifications, setNotifications] = useState<MockNotification[]>(MOCK_NOTIFICATIONS);
+  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
   const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setUser(authService.getStoredUser());
+    const storedUser = authService.getStoredUser();
+    setUser(storedUser);
+    if (!storedUser) return;
+
+    let cancelled = false;
+    Promise.all([
+      clientService.getClients(storedUser.id),
+      sessionService.getSessions(storedUser.id),
+      invoiceService.getInvoices(storedUser.id),
+    ]).then(([clientData, sessionData, invoiceData]) => {
+      if (cancelled) return;
+      setClients(clientData);
+      setSessions(sessionData);
+      setInvoices(invoiceData);
+    }).catch(() => {
+      // The page-level data views surface API errors; the topbar is auxiliary.
+    });
+
+    return () => { cancelled = true; };
   }, []);
 
   // Refresh user when profile is updated from settings
@@ -91,14 +102,20 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Search logic — runs synchronously against mock data
+  const clientNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    clients.forEach(client => { map[client.id] = client.display_name; });
+    return map;
+  }, [clients]);
+
+  // Search logic runs against the records loaded from the backend.
   const searchResults = useMemo<SearchResult[]>(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     const results: SearchResult[] = [];
 
     // Clients
-    MOCK_CLIENTS.filter(c =>
+    clients.filter(c =>
       c.display_name.toLowerCase().includes(q) ||
       (c.email ?? '').toLowerCase().includes(q)
     ).slice(0, 3).forEach(c => results.push({
@@ -109,7 +126,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     }));
 
     // Sessions
-    MOCK_SESSIONS.filter(s => {
+    sessions.filter(s => {
       const name = clientNameMap[s.client_id] ?? '';
       return name.toLowerCase().includes(q) ||
         (s.notes ?? '').toLowerCase().includes(q) ||
@@ -123,7 +140,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     }));
 
     // Invoices
-    MOCK_INVOICES.filter(inv => {
+    invoices.filter(inv => {
       const name = clientNameMap[inv.client_id] ?? '';
       return name.toLowerCase().includes(q) ||
         inv.id.toLowerCase().includes(q) ||
@@ -137,7 +154,41 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     }));
 
     return results.slice(0, 8);
-  }, [searchQuery]);
+  }, [searchQuery, clients, sessions, invoices, clientNameMap]);
+
+  const notificationCandidates = useMemo<NotificationItem[]>(() => {
+    const upcoming = [...sessions]
+      .filter(session => session.status === 'scheduled' && new Date(`${session.date}T${session.start_time}`) >= new Date())
+      .sort((a, b) => `${a.date}T${a.start_time}`.localeCompare(`${b.date}T${b.start_time}`));
+    const unpaid = invoices.filter(invoice => invoice.status === 'unpaid');
+
+    return [
+      ...upcoming.slice(0, 3).map(session => ({
+        id: `session-${session.id}`,
+        title: 'Upcoming session',
+        body: `${clientNameMap[session.client_id] ?? 'Client'} · ${session.date} at ${session.start_time}`,
+        time: session.date,
+        read: false,
+        type: 'session' as const,
+      })),
+      ...unpaid.slice(0, 3).map(invoice => ({
+        id: `invoice-${invoice.id}`,
+        title: 'Invoice unpaid',
+        body: `${invoice.id} · ${clientNameMap[invoice.client_id] ?? 'Client'} · R${invoice.amount.toLocaleString('en-ZA')}`,
+        time: `Due ${invoice.due_date}`,
+        read: false,
+        type: 'invoice' as const,
+      })),
+    ].slice(0, 5);
+  }, [sessions, invoices, clientNameMap]);
+
+  const notifications = useMemo(
+    () => notificationCandidates.map(notification => ({
+      ...notification,
+      read: readNotificationIds.has(notification.id),
+    })),
+    [notificationCandidates, readNotificationIds],
+  );
 
   const handleSearchKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); }
@@ -150,12 +201,13 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  const markAllRead = () => setReadNotificationIds(new Set(notificationCandidates.map(notification => notification.id)));
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    if (loggingOut) return;
     setLoggingOut(true);
-    await authService.logout();
-    router.push('/sign-up-login-screen');
+    void authService.logout().catch(() => undefined);
+    router.replace('/sign-up-login-screen');
   };
 
   const initials = user?.name
@@ -304,7 +356,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
               ))}
             </ul>
             <div className="px-4 py-2.5 border-t text-center" style={{ borderColor: 'var(--border)' }}>
-              <span className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>Mock data — connect backend to enable live notifications</span>
+              <span className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>Live data from backend</span>
             </div>
           </div>
         )}

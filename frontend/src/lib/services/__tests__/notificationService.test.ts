@@ -1,63 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiClient } from '../../api';
 import { notificationService } from '../notificationService';
-import type { Session } from '../../types';
-
-const mockSession: Session = {
-  id: 'session-test',
-  coach_id: 'coach-001',
-  client_id: 'client-001',
-  date: '2026-09-10',
-  start_time: '14:00',
-  planned_duration: 60,
-  actual_duration: null,
-  session_type: 'in-person',
-  location: 'Rosebank Library',
-  status: 'scheduled',
-  notes: '',
-};
 
 describe('notificationService', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-  });
+  beforeEach(() => vi.restoreAllMocks());
 
-  it('logs a scheduled notification', async () => {
-    await notificationService.send({
+  it('sends notifications through the backend', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(undefined);
+    const payload = {
       client_id: 'client-001',
-      type: 'scheduled',
-      session: mockSession,
+      type: 'scheduled' as const,
+      session: {
+        id: 'session-001', coach_id: 'coach-001', client_id: 'client-001', date: '2026-09-10',
+        start_time: '14:00', planned_duration: 60, actual_duration: null,
+        session_type: 'in-person' as const, location: 'Library', status: 'scheduled' as const, notes: '',
+      },
       client_name: 'Amahle Dlamini',
-    });
-    expect(console.log).toHaveBeenCalled();
-  });
+    };
 
-  it('logs a cancelled notification with correct session details', async () => {
-    await notificationService.send({
-      client_id: 'client-001',
-      type: 'cancelled',
-      session: mockSession,
-      client_name: 'Amahle Dlamini',
-    });
-    expect(console.log).toHaveBeenCalled();
-  });
+    await notificationService.send(payload);
 
-  it('logs a completed notification with actual duration', async () => {
-    const completedSession = { ...mockSession, status: 'completed' as const, actual_duration: 55 };
-    await notificationService.send({
-      client_id: 'client-001',
-      type: 'completed',
-      session: completedSession,
-      client_name: 'Amahle Dlamini',
-    });
-    expect(console.log).toHaveBeenCalled();
-  });
-
-  it('resolves without throwing for all notification types', async () => {
-    const types = ['scheduled', 'updated', 'cancelled', 'completed'] as const;
-    for (const type of types) {
-      await expect(
-        notificationService.send({ client_id: 'client-001', type, session: mockSession, client_name: 'Test' })
-      ).resolves.toBeUndefined();
-    }
+    expect(post).toHaveBeenCalledWith('/notifications', payload);
   });
 });

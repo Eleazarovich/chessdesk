@@ -170,7 +170,7 @@ export default function ClientTable({ clients, onRefresh }: ClientTableProps) {
       await clientService.deleteClient(id);
       onRefresh();
     } catch {
-      // handle error silently in mock
+      // The page refreshes its data after successful mutations.
     } finally {
       setDeletingId(null);
       setConfirmDeleteId(null);

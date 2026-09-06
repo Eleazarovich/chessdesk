@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { CommunicationPreference, LearnerRange } from '@/lib/types';
 import { clientService } from '@/lib/services/clientService';
+import { authService } from '@/lib/services/authService';
 import Toggle from '@/components/ui/Toggle';
 import { ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
 
@@ -51,10 +52,11 @@ export default function SchoolClientForm({ onBack, onSuccess }: SchoolClientForm
     setLoading(true);
     setServerError('');
     try {
-      // BACKEND INTEGRATION POINT: clientService.createClient maps to POST /clients
+      const coachId = authService.getCurrentCoachId();
+      if (!coachId) throw new Error('Authentication required');
       await clientService.createClient(
         {
-          coach_id: 'coach-001',
+          coach_id: coachId,
           client_type: 'school',
           display_name: data.school_name,
           email: data.email,

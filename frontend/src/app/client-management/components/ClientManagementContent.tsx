@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import type { ClientWithDetails, ClientType } from '@/lib/types';
 import { clientService } from '@/lib/services/clientService';
+import { authService } from '@/lib/services/authService';
 import ClientTable from './ClientTable';
 import AddClientModal from './AddClientModal';
 import { TableRowSkeleton } from '@/components/ui/LoadingSkeleton';
@@ -20,9 +21,14 @@ export default function ClientManagementContent() {
   const [addModalOpen, setAddModalOpen] = useState(false);
 
   const loadClients = () => {
+    const coachId = authService.getCurrentCoachId();
+    if (!coachId) {
+      setError('Your session has expired. Please sign in again.');
+      return;
+    }
     setLoading(true);
     setError(null);
-    clientService.getClients('coach-001')
+    clientService.getClients(coachId)
       .then(data => { setClients(data); setLoading(false); })
       .catch(() => { setError('Failed to load clients. Check your connection and try again.'); setLoading(false); });
   };

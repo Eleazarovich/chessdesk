@@ -4,10 +4,12 @@ import LoginForm from './LoginForm';
 import SignUpForm from './SignUpForm';
 import ForgotPasswordForm from './ForgotPasswordForm';
 import AppLogo from '@/components/ui/AppLogo';
+import { useRouter } from 'next/navigation';
 
 type AuthView = 'login' | 'signup' | 'forgot';
 
 export default function AuthContent() {
+  const router = useRouter();
   const [view, setView] = useState<AuthView>('login');
 
   return (
@@ -55,7 +57,7 @@ export default function AuthContent() {
 
           <div className="p-6">
             {view === 'login' && <LoginForm onForgotPassword={() => setView('forgot')} />}
-            {view === 'signup' && <SignUpForm onSuccess={() => setView('login')} />}
+            {view === 'signup' && <SignUpForm onSuccess={() => router.push('/')} />}
             {view === 'forgot' && <ForgotPasswordForm onBack={() => setView('login')} />}
           </div>
         </div>

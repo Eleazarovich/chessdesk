@@ -25,6 +25,10 @@ A modern Next.js 15 application built with TypeScript and Tailwind CSS.
   ```
 3. Open [http://localhost:4028](http://localhost:4028) with your browser to see the result.
 
+The frontend calls the FastAPI backend at `http://localhost:8000/api/v1` by
+default. Start it from the repository root with `make dev`, or set
+`NEXT_PUBLIC_API_BASE_URL` in `.env.local` when using another backend URL.
+
 ## 📁 Project Structure
 
 ```
@@ -63,6 +67,7 @@ This project uses Tailwind CSS for styling with the following features:
 - `npm run serve` - Start the production server
 - `npm run lint` - Run ESLint to check code quality
 - `npm run lint:fix` - Fix ESLint issues automatically
+- `npm test` - Run frontend service tests
 - `npm run format` - Format code with Prettier
 
 ## 📱 Deployment
