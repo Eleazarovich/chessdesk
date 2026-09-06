@@ -12,6 +12,8 @@ import type { AuthUser, ClientWithDetails, Invoice, Session } from '@/lib/types'
 interface TopbarProps {
   onMenuClick: () => void;
   sidebarCollapsed: boolean;
+  onLogout: () => Promise<void>;
+  loggingOut: boolean;
 }
 
 interface SearchResult {
@@ -38,10 +40,9 @@ const notifColor: Record<NotificationItem['type'], string> = {
   system: 'var(--foreground-subtle)',
 };
 
-export default function Topbar({ onMenuClick }: TopbarProps) {
+export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProps) {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
   const [clients, setClients] = useState<ClientWithDetails[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -202,15 +203,6 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
   const unreadCount = notifications.filter(n => !n.read).length;
   const markAllRead = () => setReadNotificationIds(new Set(notificationCandidates.map(notification => notification.id)));
-
-  const handleLogout = async () => {
-    setLoggingOut(true);
-    try {
-      await authService.logout();
-    } finally {
-      router.push('/sign-up-login-screen');
-    }
-  };
 
   const initials = user?.name
     ? user.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('')
@@ -378,7 +370,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
       {/* Logout */}
       <button
-        onClick={handleLogout}
+        onClick={onLogout}
         disabled={loggingOut}
         className="p-2 rounded-lg btn-ghost disabled:opacity-50"
         aria-label="Log out"

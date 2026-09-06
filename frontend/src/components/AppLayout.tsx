@@ -16,6 +16,7 @@ export default function AppLayout({ children, activePath }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [authorized, setAuthorized] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (authService.getStoredUser()) {
@@ -24,6 +25,16 @@ export default function AppLayout({ children, activePath }: AppLayoutProps) {
       router.replace('/sign-up-login-screen');
     }
   }, [router]);
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await authService.logout();
+    } finally {
+      router.replace('/sign-up-login-screen');
+    }
+  };
 
   useEffect(() => {
     const handleSessionExpired = () => {
@@ -54,6 +65,8 @@ export default function AppLayout({ children, activePath }: AppLayoutProps) {
         mobileOpen={mobileSidebarOpen}
         onMobileClose={() => setMobileSidebarOpen(false)}
         activePath={activePath}
+        onSignOut={handleLogout}
+        signingOut={loggingOut}
       />
 
       {/* Main content area */}
@@ -61,6 +74,8 @@ export default function AppLayout({ children, activePath }: AppLayoutProps) {
         <Topbar
           onMenuClick={() => setMobileSidebarOpen(true)}
           sidebarCollapsed={sidebarCollapsed}
+          onLogout={handleLogout}
+          loggingOut={loggingOut}
         />
         <main className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 sm:px-5 lg:px-6" style={{ WebkitOverflowScrolling: 'touch' }}>
           <div className="max-w-screen-xl mx-auto w-full">

@@ -1,7 +1,6 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import AppLogo from './ui/AppLogo';
 import { authService } from '@/lib/services/authService';
 import { clientService } from '@/lib/services/clientService';
@@ -42,12 +41,12 @@ interface SidebarProps {
   mobileOpen: boolean;
   onMobileClose: () => void;
   activePath?: string;
+  onSignOut: () => Promise<void>;
+  signingOut: boolean;
 }
 
-export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, activePath }: SidebarProps) {
-  const router = useRouter();
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, activePath, onSignOut, signingOut }: SidebarProps) {
   const [counts, setCounts] = useState<SidebarCounts>({ clients: 0, scheduledSessions: 0, unpaidInvoices: 0 });
-  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     const coachId = authService.getCurrentCoachId();
@@ -77,16 +76,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     return activePath?.startsWith(href);
   };
 
-  const handleSignOut = async () => {
-    if (signingOut) return;
-    setSigningOut(true);
-    try {
-      await authService.logout();
-    } finally {
-      router.replace('/sign-up-login-screen');
-    }
-  };
-
   return (
     <>
       {/* Desktop sidebar */}
@@ -101,7 +90,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           borderColor: 'var(--border)',
         }}
       >
-        <SidebarContent collapsed={collapsed} onToggle={onToggle} isActive={isActive} counts={counts} onSignOut={handleSignOut} signingOut={signingOut} />
+        <SidebarContent collapsed={collapsed} onToggle={onToggle} isActive={isActive} counts={counts} onSignOut={onSignOut} signingOut={signingOut} />
       </aside>
 
       {/* Mobile sidebar */}
@@ -117,7 +106,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           borderRight: '1px solid var(--border)',
         }}
       >
-        <SidebarContent collapsed={false} onToggle={onMobileClose} isActive={isActive} isMobile counts={counts} onSignOut={handleSignOut} signingOut={signingOut} />
+        <SidebarContent collapsed={false} onToggle={onMobileClose} isActive={isActive} isMobile counts={counts} onSignOut={onSignOut} signingOut={signingOut} />
       </aside>
     </>
   );
