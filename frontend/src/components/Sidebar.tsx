@@ -1,6 +1,7 @@
 'use client';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import AppLogo from './ui/AppLogo';
 import { authService } from '@/lib/services/authService';
 import { clientService } from '@/lib/services/clientService';
@@ -44,7 +45,9 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, activePath }: SidebarProps) {
+  const router = useRouter();
   const [counts, setCounts] = useState<SidebarCounts>({ clients: 0, scheduledSessions: 0, unpaidInvoices: 0 });
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     const coachId = authService.getCurrentCoachId();
@@ -74,6 +77,16 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     return activePath?.startsWith(href);
   };
 
+  const handleSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await authService.logout();
+    } finally {
+      router.replace('/sign-up-login-screen');
+    }
+  };
+
   return (
     <>
       {/* Desktop sidebar */}
@@ -88,7 +101,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           borderColor: 'var(--border)',
         }}
       >
-        <SidebarContent collapsed={collapsed} onToggle={onToggle} isActive={isActive} counts={counts} />
+        <SidebarContent collapsed={collapsed} onToggle={onToggle} isActive={isActive} counts={counts} onSignOut={handleSignOut} signingOut={signingOut} />
       </aside>
 
       {/* Mobile sidebar */}
@@ -104,7 +117,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           borderRight: '1px solid var(--border)',
         }}
       >
-        <SidebarContent collapsed={false} onToggle={onMobileClose} isActive={isActive} isMobile counts={counts} />
+        <SidebarContent collapsed={false} onToggle={onMobileClose} isActive={isActive} isMobile counts={counts} onSignOut={handleSignOut} signingOut={signingOut} />
       </aside>
     </>
   );
@@ -115,10 +128,12 @@ interface SidebarContentProps {
   onToggle: () => void;
   isActive: (href: string) => boolean | undefined;
   counts: SidebarCounts;
+  onSignOut: () => void;
+  signingOut: boolean;
   isMobile?: boolean;
 }
 
-function SidebarContent({ collapsed, onToggle, isActive, counts, isMobile }: SidebarContentProps) {
+function SidebarContent({ collapsed, onToggle, isActive, counts, onSignOut, signingOut, isMobile }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -172,10 +187,13 @@ function SidebarContent({ collapsed, onToggle, isActive, counts, isMobile }: Sid
       {/* Bottom */}
       <div className="px-3 py-4 border-t space-y-1" style={{ borderColor: 'var(--border)' }}>
         <button
+          type="button"
+          onClick={onSignOut}
+          disabled={signingOut}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-foreground-muted hover:bg-surface-elevated hover:text-destructive transition-all duration-150 ${collapsed && !isMobile ? 'justify-center' : ''}`}
         >
           <LogOut size={16} />
-          {(!collapsed || isMobile) && <span>Sign Out</span>}
+          {(!collapsed || isMobile) && <span>{signingOut ? 'Signing out…' : 'Sign Out'}</span>}
         </button>
 
         {!isMobile && (
