@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   title: 'ChessDesk — Chess Coaching Operations',
   description: 'Run your chess coaching business from one place. Manage sessions, clients, invoices, and finances.',
   icons: {
-    icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],
+    icon: [{ url: '/assets/chess-bishop-logo.svg', type: 'image/svg+xml' }],
   },
 };
 
