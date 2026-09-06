@@ -1,0 +1,1504 @@
+openapi: 3.1.0
+
+info:
+  title: ChessDesk Backend API
+  version: 0.1.0
+  description: >-
+    API contract for the ChessDesk frontend. The current frontend service modules
+    are mock implementations, so this contract is inferred from their public
+    method signatures, TypeScript models, and integration comments. Authenticated
+    requests use the session cookie set by the authentication endpoints.
+
+servers:
+  - url: /api/v1
+    description: Backend API base path
+
+tags:
+  - name: Authentication
+  - name: Dashboard
+  - name: Clients
+  - name: Sessions
+  - name: Invoices
+  - name: Expenses
+  - name: Profile
+  - name: Notifications
+
+security:
+  - sessionCookie: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Sign in a coach
+      description: Public endpoint. On success, the backend sets the authenticated session cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated coach
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/signup:
+    post:
+      tags: [Authentication]
+      operationId: signUp
+      summary: Create a coach account
+      description: Public endpoint. On success, the backend sets the authenticated session cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUpRequest'
+      responses:
+        '201':
+          description: Account created and authenticated
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/password/reset:
+    post:
+      tags: [Authentication]
+      operationId: resetPassword
+      summary: Request a password-reset email
+      description: Public endpoint. The response is intentionally empty whether or not the email is registered.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '204':
+          description: Reset request accepted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: Sign out the current coach
+      responses:
+        '204':
+          description: Session cleared
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardData
+      summary: Get dashboard aggregates
+      description: The filter controls the financial and activity reporting period. Chart points are returned in the same response.
+      parameters:
+        - $ref: '#/components/parameters/CoachIdQuery'
+        - name: filter
+          in: query
+          required: true
+          description: Reporting period used by the dashboard.
+          schema:
+            $ref: '#/components/schemas/TimeFilter'
+      responses:
+        '200':
+          description: Dashboard data for the coach
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardData'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /clients:
+    get:
+      tags: [Clients]
+      operationId: getClients
+      summary: List clients
+      description: Returns clients owned by the specified coach, enriched with details, next session, and outstanding amount.
+      parameters:
+        - $ref: '#/components/parameters/CoachIdQuery'
+      responses:
+        '200':
+          description: Matching clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClientWithDetails'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Clients]
+      operationId: createClient
+      summary: Create a client
+      description: Creates either an individual student client or a school client. Include the matching details object for the selected client type.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCreateRequest'
+            examples:
+              individual:
+                value:
+                  coach_id: coach-001
+                  client_type: individual
+                  display_name: Amahle Dlamini
+                  email: parent.dlamini@example.com
+                  whatsapp: '+27 73 112 3344'
+                  preferred_communication: whatsapp
+                  notifications_enabled: true
+                  notes: Preparing for U14 provincials.
+                  active: true
+                  individual_details:
+                    student_name: Amahle Dlamini
+                    school_name: Rosebank College Prep
+                    parent_name: Zanele Dlamini
+              school:
+                value:
+                  coach_id: coach-001
+                  client_type: school
+                  display_name: Greenfields Primary
+                  email: admin@greenfieldsprimary.example.com
+                  whatsapp: '+27 11 456 7890'
+                  preferred_communication: email
+                  notifications_enabled: true
+                  notes: Wednesday afternoons.
+                  active: true
+                  school_details:
+                    school_name: Greenfields Primary
+                    contact_person: Mrs. Karen Botha
+                    learner_range: 20-30
+      responses:
+        '201':
+          description: Created client (without the computed/enriched fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /clients/{clientId}:
+    parameters:
+      - $ref: '#/components/parameters/ClientId'
+
+    get:
+      tags: [Clients]
+      operationId: getClient
+      summary: Get one client
+      responses:
+        '200':
+          description: Client with details and computed values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientWithDetails'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Clients]
+      operationId: updateClient
+      summary: Update a client
+      description: Updates only the supplied mutable client fields. The client id and owning coach are immutable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUpdateRequest'
+      responses:
+        '200':
+          description: Updated client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Clients]
+      operationId: deleteClient
+      summary: Delete a client
+      responses:
+        '204':
+          description: Client deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /sessions:
+    get:
+      tags: [Sessions]
+      operationId: getSessions
+      summary: List coaching sessions
+      parameters:
+        - $ref: '#/components/parameters/CoachIdQuery'
+      responses:
+        '200':
+          description: Matching sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Sessions]
+      operationId: createSession
+      summary: Schedule a coaching session
+      description: Creates a session. If the client has notifications enabled, the backend should send the scheduled-session notification as a side effect.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreateRequest'
+      responses:
+        '201':
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+
+    get:
+      tags: [Sessions]
+      operationId: getSession
+      summary: Get one session
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Sessions]
+      operationId: updateSession
+      summary: Update a session
+      description: >-
+        Used by updateSession, cancelSession, and completeSession in the frontend.
+        cancelSession sends status=cancelled. completeSession sends
+        status=completed together with actual_duration and notes. Important
+        changes should trigger an updated or completed notification when enabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionUpdateRequest'
+            examples:
+              reschedule:
+                value:
+                  date: '2026-09-09'
+                  start_time: '16:30'
+                  location: Rosebank Library
+              cancel:
+                value:
+                  status: cancelled
+              complete:
+                value:
+                  status: completed
+                  actual_duration: 55
+                  notes: Covered endgame rook techniques.
+      responses:
+        '200':
+          description: Updated session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Sessions]
+      operationId: deleteSession
+      summary: Delete a session
+      responses:
+        '204':
+          description: Session deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /invoices:
+    get:
+      tags: [Invoices]
+      operationId: getInvoices
+      summary: List invoices
+      parameters:
+        - $ref: '#/components/parameters/CoachIdQuery'
+      responses:
+        '200':
+          description: Matching invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Invoices]
+      operationId: createInvoice
+      summary: Create an invoice
+      description: session_ids contains zero or more sessions attached to the invoice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceCreateRequest'
+      responses:
+        '201':
+          description: Created invoice
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /invoices/{invoiceId}:
+    parameters:
+      - $ref: '#/components/parameters/InvoiceId'
+
+    patch:
+      tags: [Invoices]
+      operationId: updateInvoice
+      summary: Update an invoice
+      description: >-
+        Used by updateInvoice and markPaid in the frontend. markPaid sends
+        status=paid, paid_date, payment_method, and payment_reference in this
+        PATCH request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceUpdateRequest'
+            examples:
+              markPaid:
+                value:
+                  status: paid
+                  paid_date: '2026-09-07'
+                  payment_method: eft
+                  payment_reference: EFT-20260907-001
+      responses:
+        '200':
+          description: Updated invoice
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Invoices]
+      operationId: deleteInvoice
+      summary: Delete an invoice
+      responses:
+        '204':
+          description: Invoice deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /invoices/{invoiceId}/sessions:
+    get:
+      tags: [Invoices]
+      operationId: getSessionsForInvoice
+      summary: List session ids attached to an invoice
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+      responses:
+        '200':
+          description: Attached session ids
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /expenses:
+    get:
+      tags: [Expenses]
+      operationId: getExpenses
+      summary: List expenses
+      parameters:
+        - $ref: '#/components/parameters/CoachIdQuery'
+      responses:
+        '200':
+          description: Matching expenses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Expense'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Expenses]
+      operationId: createExpense
+      summary: Record an expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseCreateRequest'
+      responses:
+        '201':
+          description: Created expense
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /expenses/{expenseId}:
+    parameters:
+      - $ref: '#/components/parameters/ExpenseId'
+
+    patch:
+      tags: [Expenses]
+      operationId: updateExpense
+      summary: Update an expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseUpdateRequest'
+      responses:
+        '200':
+          description: Updated expense
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Expenses]
+      operationId: deleteExpense
+      summary: Delete an expense
+      responses:
+        '204':
+          description: Expense deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /coaches/{coachId}/profile:
+    parameters:
+      - $ref: '#/components/parameters/CoachId'
+
+    get:
+      tags: [Profile]
+      operationId: getProfile
+      summary: Get a coach profile
+      responses:
+        '200':
+          description: Coach profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coach'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Profile]
+      operationId: updateProfile
+      summary: Update a coach profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoachUpdateRequest'
+      responses:
+        '200':
+          description: Updated coach profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Coach'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /notifications:
+    post:
+      tags: [Notifications]
+      operationId: sendNotification
+      summary: Send a session notification
+      description: >-
+        Direct endpoint corresponding to notificationService.send. In the
+        normal flow, the backend should invoke this behavior as a side effect
+        of creating, updating, cancelling, or completing a session; the
+        frontend does not need to call it separately.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPayload'
+      responses:
+        '204':
+          description: Notification accepted and sent
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: chessdesk_session
+      description: HttpOnly session cookie established by login or signup.
+
+  headers:
+    SetCookie:
+      description: Sets the authenticated HttpOnly session cookie.
+      schema:
+        type: string
+
+  parameters:
+    CoachId:
+      name: coachId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: coach-001
+    CoachIdQuery:
+      name: coach_id
+      in: query
+      required: true
+      description: Coach whose records should be returned. The authenticated user must own this id.
+      schema:
+        type: string
+      example: coach-001
+    ClientId:
+      name: clientId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: client-001
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: session-001
+    InvoiceId:
+      name: invoiceId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: inv-001
+    ExpenseId:
+      name: expenseId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: exp-001
+
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Authentication is required or the session is invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The authenticated coach cannot access this resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Resource conflicts with an existing record
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+        field_errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 6
+
+    SignUpRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+          minLength: 2
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    ResetPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    AuthUser:
+      type: object
+      required: [id, email, name]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+
+    Coach:
+      type: object
+      required: [id, name, email, phone, business_name, currency]
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        business_name:
+          type: string
+        currency:
+          type: string
+
+    CoachUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        business_name:
+          type: string
+        currency:
+          type: string
+
+    ClientType:
+      type: string
+      enum: [individual, school]
+
+    CommunicationPreference:
+      type: string
+      enum: [whatsapp, email, both]
+
+    LearnerRange:
+      type: string
+      enum: ['1-10', '10-20', '20-30', '30-40', '40+']
+
+    Client:
+      type: object
+      required:
+        - id
+        - coach_id
+        - client_type
+        - display_name
+        - email
+        - whatsapp
+        - preferred_communication
+        - notifications_enabled
+        - notes
+        - active
+      properties:
+        id:
+          type: string
+          readOnly: true
+        coach_id:
+          type: string
+          readOnly: true
+        client_type:
+          $ref: '#/components/schemas/ClientType'
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+        whatsapp:
+          type: string
+        preferred_communication:
+          $ref: '#/components/schemas/CommunicationPreference'
+        notifications_enabled:
+          type: boolean
+        notes:
+          type: string
+        active:
+          type: boolean
+
+    IndividualStudentDetails:
+      type: object
+      required: [client_id, student_name, school_name, parent_name]
+      properties:
+        client_id:
+          type: string
+          readOnly: true
+        student_name:
+          type: string
+        school_name:
+          type: string
+          description: Optional school name; the frontend represents an omitted value as an empty string.
+        parent_name:
+          type: string
+
+    SchoolDetails:
+      type: object
+      required: [client_id, school_name, contact_person, learner_range]
+      properties:
+        client_id:
+          type: string
+          readOnly: true
+        school_name:
+          type: string
+        contact_person:
+          type: string
+        learner_range:
+          $ref: '#/components/schemas/LearnerRange'
+
+    ClientCreateRequest:
+      type: object
+      required:
+        - coach_id
+        - client_type
+        - display_name
+        - email
+        - whatsapp
+        - preferred_communication
+        - notifications_enabled
+        - notes
+        - active
+      properties:
+        coach_id:
+          type: string
+        client_type:
+          $ref: '#/components/schemas/ClientType'
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+        whatsapp:
+          type: string
+        preferred_communication:
+          $ref: '#/components/schemas/CommunicationPreference'
+        notifications_enabled:
+          type: boolean
+        notes:
+          type: string
+        active:
+          type: boolean
+        individual_details:
+          description: Required by the frontend when client_type is individual.
+          $ref: '#/components/schemas/IndividualStudentDetailsCreate'
+        school_details:
+          description: Required by the frontend when client_type is school.
+          $ref: '#/components/schemas/SchoolDetailsCreate'
+
+    ClientUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        client_type:
+          $ref: '#/components/schemas/ClientType'
+        display_name:
+          type: string
+        email:
+          type: string
+          format: email
+        whatsapp:
+          type: string
+        preferred_communication:
+          $ref: '#/components/schemas/CommunicationPreference'
+        notifications_enabled:
+          type: boolean
+        notes:
+          type: string
+        active:
+          type: boolean
+
+    IndividualStudentDetailsCreate:
+      type: object
+      required: [student_name, school_name, parent_name]
+      properties:
+        student_name:
+          type: string
+        school_name:
+          type: string
+        parent_name:
+          type: string
+
+    SchoolDetailsCreate:
+      type: object
+      required: [school_name, contact_person, learner_range]
+      properties:
+        school_name:
+          type: string
+        contact_person:
+          type: string
+        learner_range:
+          $ref: '#/components/schemas/LearnerRange'
+
+    ClientWithDetails:
+      allOf:
+        - $ref: '#/components/schemas/Client'
+        - type: object
+          required: [outstanding_amount]
+          properties:
+            individual_details:
+              $ref: '#/components/schemas/IndividualStudentDetails'
+            school_details:
+              $ref: '#/components/schemas/SchoolDetails'
+            upcoming_session:
+              type: [string, 'null']
+              description: Date and time formatted as YYYY-MM-DD HH:mm, or null when none is upcoming.
+            outstanding_amount:
+              type: number
+              minimum: 0
+
+    SessionType:
+      type: string
+      enum: [online, in-person]
+
+    SessionStatus:
+      type: string
+      enum: [scheduled, completed, cancelled]
+
+    Session:
+      type: object
+      required:
+        - id
+        - coach_id
+        - client_id
+        - date
+        - start_time
+        - planned_duration
+        - actual_duration
+        - session_type
+        - location
+        - status
+        - notes
+      properties:
+        id:
+          type: string
+          readOnly: true
+        coach_id:
+          type: string
+          readOnly: true
+        client_id:
+          type: string
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          example: '14:00'
+        planned_duration:
+          type: integer
+          minimum: 1
+        actual_duration:
+          type: [integer, 'null']
+          minimum: 0
+        session_type:
+          $ref: '#/components/schemas/SessionType'
+        location:
+          type: string
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        notes:
+          type: string
+
+    SessionCreateRequest:
+      type: object
+      required:
+        - coach_id
+        - client_id
+        - date
+        - start_time
+        - planned_duration
+        - actual_duration
+        - session_type
+        - location
+        - status
+        - notes
+      properties:
+        coach_id:
+          type: string
+        client_id:
+          type: string
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        planned_duration:
+          type: integer
+          minimum: 1
+        actual_duration:
+          type: [integer, 'null']
+          minimum: 0
+        session_type:
+          $ref: '#/components/schemas/SessionType'
+        location:
+          type: string
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        notes:
+          type: string
+
+    SessionUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        client_id:
+          type: string
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        planned_duration:
+          type: integer
+          minimum: 1
+        actual_duration:
+          type: [integer, 'null']
+          minimum: 0
+        session_type:
+          $ref: '#/components/schemas/SessionType'
+        location:
+          type: string
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        notes:
+          type: string
+
+    PaymentMethod:
+      type: string
+      enum: [eft, cash, other]
+
+    InvoiceStatus:
+      type: string
+      enum: [unpaid, paid]
+
+    Invoice:
+      type: object
+      required:
+        - id
+        - coach_id
+        - client_id
+        - invoice_date
+        - due_date
+        - amount
+        - description
+        - status
+        - paid_date
+        - payment_method
+        - payment_reference
+        - notes
+      properties:
+        id:
+          type: string
+          readOnly: true
+        coach_id:
+          type: string
+          readOnly: true
+        client_id:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        paid_date:
+          type: [string, 'null']
+          format: date
+        payment_method:
+          anyOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        payment_reference:
+          type: string
+        notes:
+          type: string
+
+    InvoiceCreateRequest:
+      type: object
+      required:
+        - coach_id
+        - client_id
+        - invoice_date
+        - due_date
+        - amount
+        - description
+        - status
+        - paid_date
+        - payment_method
+        - payment_reference
+        - notes
+        - session_ids
+      properties:
+        coach_id:
+          type: string
+        client_id:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        paid_date:
+          type: [string, 'null']
+          format: date
+        payment_method:
+          anyOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        payment_reference:
+          type: string
+        notes:
+          type: string
+        session_ids:
+          type: array
+          items:
+            type: string
+
+    InvoiceUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        client_id:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        paid_date:
+          type: [string, 'null']
+          format: date
+        payment_method:
+          anyOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        payment_reference:
+          type: string
+        notes:
+          type: string
+        session_ids:
+          type: array
+          items:
+            type: string
+
+    ExpenseCategory:
+      type: string
+      enum: [transport, food, equipment, internet, venue, chess_materials, other]
+
+    Expense:
+      type: object
+      required: [id, coach_id, date, amount, category, description]
+      properties:
+        id:
+          type: string
+          readOnly: true
+        coach_id:
+          type: string
+          readOnly: true
+        date:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
+        category:
+          $ref: '#/components/schemas/ExpenseCategory'
+        description:
+          type: string
+
+    ExpenseCreateRequest:
+      type: object
+      required: [coach_id, date, amount, category, description]
+      properties:
+        coach_id:
+          type: string
+        date:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
+        category:
+          $ref: '#/components/schemas/ExpenseCategory'
+        description:
+          type: string
+
+    ExpenseUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        date:
+          type: string
+          format: date
+        amount:
+          type: number
+          minimum: 0
+        category:
+          $ref: '#/components/schemas/ExpenseCategory'
+        description:
+          type: string
+
+    TimeFilter:
+      type: string
+      enum: [this_month, previous_month, all_time]
+
+    DashboardFinancials:
+      type: object
+      required: [revenue_earned, payments_received, outstanding, expenses, net_income]
+      properties:
+        revenue_earned:
+          type: number
+        payments_received:
+          type: number
+        outstanding:
+          type: number
+        expenses:
+          type: number
+        net_income:
+          type: number
+
+    DashboardActivity:
+      type: object
+      required: [active_individual_students, active_schools, sessions_completed, upcoming_sessions, unpaid_invoices]
+      properties:
+        active_individual_students:
+          type: integer
+          minimum: 0
+        active_schools:
+          type: integer
+          minimum: 0
+        sessions_completed:
+          type: integer
+          minimum: 0
+        upcoming_sessions:
+          type: integer
+          minimum: 0
+        unpaid_invoices:
+          type: integer
+          minimum: 0
+
+    UpcomingSession:
+      type: object
+      required: [session_id, client_name, date, start_time, session_type, location]
+      properties:
+        session_id:
+          type: string
+        client_name:
+          type: string
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        session_type:
+          $ref: '#/components/schemas/SessionType'
+        location:
+          type: string
+
+    RevenueChartPoint:
+      type: object
+      required: [month, revenue, expenses, payments]
+      properties:
+        month:
+          type: string
+        revenue:
+          type: number
+        expenses:
+          type: number
+        payments:
+          type: number
+
+    SessionsChartPoint:
+      type: object
+      required: [month, completed, scheduled, cancelled]
+      properties:
+        month:
+          type: string
+        completed:
+          type: integer
+          minimum: 0
+        scheduled:
+          type: integer
+          minimum: 0
+        cancelled:
+          type: integer
+          minimum: 0
+
+    DashboardData:
+      type: object
+      required: [financials, activity, upcoming_sessions, revenue_chart, sessions_chart]
+      properties:
+        financials:
+          $ref: '#/components/schemas/DashboardFinancials'
+        activity:
+          $ref: '#/components/schemas/DashboardActivity'
+        upcoming_sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/UpcomingSession'
+        revenue_chart:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevenueChartPoint'
+        sessions_chart:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionsChartPoint'
+
+    NotificationType:
+      type: string
+      enum: [scheduled, updated, cancelled, completed]
+
+    NotificationPayload:
+      type: object
+      required: [client_id, type, session, client_name]
+      properties:
+        client_id:
+          type: string
+        type:
+          $ref: '#/components/schemas/NotificationType'
+        session:
+          $ref: '#/components/schemas/Session'
+        client_name:
+          type: string
