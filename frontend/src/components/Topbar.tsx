@@ -203,11 +203,13 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
   const unreadCount = notifications.filter(n => !n.read).length;
   const markAllRead = () => setReadNotificationIds(new Set(notificationCandidates.map(notification => notification.id)));
 
-  const handleLogout = () => {
-    if (loggingOut) return;
+  const handleLogout = async () => {
     setLoggingOut(true);
-    void authService.logout().catch(() => undefined);
-    router.replace('/sign-up-login-screen');
+    try {
+      await authService.logout();
+    } finally {
+      router.push('/sign-up-login-screen');
+    }
   };
 
   const initials = user?.name

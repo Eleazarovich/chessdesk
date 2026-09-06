@@ -1,11 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiClient } from '../../api';
+import { apiClient } from '../../api';
 import { AUTH_STORAGE_KEY, authService } from '../authService';
 
 describe('authService', () => {
   beforeEach(() => {
     localStorage.clear();
-    apiClient.clearAccessToken();
     vi.restoreAllMocks();
   });
 
@@ -27,18 +26,6 @@ describe('authService', () => {
     await authService.logout();
 
     expect(post).toHaveBeenCalledWith('/auth/logout');
-    expect(authService.getStoredUser()).toBeNull();
-  });
-
-  it('clears stale local auth when the backend session cannot be restored', async () => {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({
-      id: 'coach-001', email: 'coach@example.com', name: 'Coach',
-    }));
-    vi.spyOn(apiClient, 'get').mockRejectedValue(new ApiError(401, {
-      message: 'Authentication is required', code: 'UNAUTHORIZED',
-    }));
-
-    await expect(authService.restoreSession()).resolves.toBeNull();
     expect(authService.getStoredUser()).toBeNull();
   });
 });

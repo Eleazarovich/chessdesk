@@ -1,5 +1,5 @@
 import type { AuthUser } from '../types';
-import { ApiError, apiClient } from '../api';
+import { apiClient } from '../api';
 
 interface SignUpData {
   name: string;
@@ -26,81 +26,32 @@ function storeUser(user: AuthUser): AuthUser {
   return user;
 }
 
-let restoredUser: AuthUser | null | undefined;
-let restorePromise: Promise<AuthUser | null> | null = null;
-
 export const authService = {
   async login(data: LoginData): Promise<AuthUser> {
     const response = await apiClient.post<AuthResponse>('/auth/login', data);
     apiClient.setAccessToken(response.access_token);
-    const user = storeUser({ id: response.id, email: response.email, name: response.name });
-    restoredUser = user;
-    return user;
+    return storeUser({ id: response.id, email: response.email, name: response.name });
   },
 
   async signUp(data: SignUpData): Promise<AuthUser> {
     const response = await apiClient.post<AuthResponse>('/auth/signup', data);
     apiClient.setAccessToken(response.access_token);
-    const user = storeUser({ id: response.id, email: response.email, name: response.name });
-    restoredUser = user;
-    return user;
+    return storeUser({ id: response.id, email: response.email, name: response.name });
   },
 
   async logout(): Promise<void> {
-    // Start revocation with the current token, then clear local state before
-    // awaiting the network so callers can navigate immediately.
-    const revocation = apiClient.post('/auth/logout');
-    restoredUser = null;
-    apiClient.clearAccessToken();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
+    try {
+      await apiClient.post('/auth/logout');
+    } finally {
+      apiClient.clearAccessToken();
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+      }
     }
-    await revocation;
   },
 
   async resetPassword(email: string): Promise<void> {
     await apiClient.post('/auth/password/reset', { email });
-  },
-
-  async restoreSession(): Promise<AuthUser | null> {
-    const user = this.getStoredUser();
-    if (!user) return null;
-
-    if (restoredUser?.id === user.id) return restoredUser;
-    if (restorePromise) return restorePromise;
-
-    restorePromise = this.verifyStoredSession(user);
-    try {
-      return await restorePromise;
-    } finally {
-      restorePromise = null;
-    }
-  },
-
-  async verifyStoredSession(user: AuthUser): Promise<AuthUser | null> {
-    try {
-      await apiClient.get(`/coaches/${encodeURIComponent(user.id)}/profile`);
-      restoredUser = user;
-      return user;
-    } catch (error) {
-      // A token from a previous backend process can be stale while the cookie
-      // is still valid. Retry once without the bearer fallback before signing out.
-      if (error instanceof ApiError && error.status === 401) {
-        apiClient.clearAccessToken();
-        try {
-          await apiClient.get(`/coaches/${encodeURIComponent(user.id)}/profile`);
-          restoredUser = user;
-          return user;
-        } catch {
-          // The backend session is no longer valid.
-        }
-      }
-
-      restoredUser = null;
-      apiClient.clearAccessToken();
-      if (typeof window !== 'undefined') localStorage.removeItem(AUTH_STORAGE_KEY);
-      return null;
-    }
   },
 
   getStoredUser(): AuthUser | null {

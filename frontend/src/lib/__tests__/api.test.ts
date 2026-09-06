@@ -5,7 +5,6 @@ describe('apiClient', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
-    fetchMock.mockReset();
     apiClient.clearAccessToken();
     vi.stubGlobal('fetch', fetchMock);
   });
@@ -49,18 +48,6 @@ describe('apiClient', () => {
       'http://localhost:8000/api/v1/clients?coach_id=coach+001',
       expect.anything(),
     );
-  });
-
-  it('deduplicates concurrent GET requests', async () => {
-    let resolveResponse: ((response: Response) => void) | undefined;
-    fetchMock.mockReturnValue(new Promise(resolve => { resolveResponse = resolve; }));
-
-    const first = apiClient.get('/clients', { coach_id: 'coach-001' });
-    const second = apiClient.get('/clients', { coach_id: 'coach-001' });
-    resolveResponse?.({ status: 200, ok: true, text: async () => '[]' } as Response);
-
-    await expect(Promise.all([first, second])).resolves.toEqual([[], []]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('adds the session-scoped bearer fallback when available', async () => {

@@ -20,11 +20,7 @@ export class ApiError extends Error {
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '');
 const ACCESS_TOKEN_KEY = 'chessdesk_access_token';
-const GET_CACHE_TTL_MS = 5_000;
 let accessToken: string | null = null;
-const getCache = new Map<string, { value: unknown; expiresAt: number }>();
-const pendingGets = new Map<string, Promise<unknown>>();
-let cacheVersion = 0;
 
 function getAccessToken(): string | null {
   if (accessToken) return accessToken;
@@ -71,11 +67,6 @@ async function request<T>(path: string, init: RequestInit = {}, params?: Record<
   return payload as T;
 }
 
-function clearGetCache(): void {
-  cacheVersion += 1;
-  getCache.clear();
-}
-
 export const apiClient = {
   setAccessToken(token: string): void {
     accessToken = token;
@@ -88,29 +79,10 @@ export const apiClient = {
   },
 
   get<T>(path: string, params?: Record<string, string>): Promise<T> {
-    const key = requestUrl(path, params);
-    const cached = getCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value as T);
-    if (cached) getCache.delete(key);
-
-    const pending = pendingGets.get(key);
-    if (pending) return pending as Promise<T>;
-
-    const requestVersion = cacheVersion;
-    const requestPromise = request<T>(path, {}, params)
-      .then(value => {
-        if (requestVersion === cacheVersion) {
-          getCache.set(key, { value, expiresAt: Date.now() + GET_CACHE_TTL_MS });
-        }
-        return value;
-      })
-      .finally(() => pendingGets.delete(key));
-    pendingGets.set(key, requestPromise);
-    return requestPromise;
+    return request<T>(path, {}, params);
   },
 
   post<T>(path: string, body?: unknown): Promise<T> {
-    clearGetCache();
     return request<T>(path, {
       method: 'POST',
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -118,12 +90,10 @@ export const apiClient = {
   },
 
   patch<T>(path: string, body: unknown): Promise<T> {
-    clearGetCache();
     return request<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
   },
 
   delete<T = void>(path: string): Promise<T> {
-    clearGetCache();
     return request<T>(path, { method: 'DELETE' });
   },
 };

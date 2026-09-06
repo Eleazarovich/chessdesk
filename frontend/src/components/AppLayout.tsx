@@ -17,14 +17,11 @@ export default function AppLayout({ children, activePath }: AppLayoutProps) {
   const [authorized, setAuthorized] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
-    authService.restoreSession().then(user => {
-      if (!mounted) return;
-      if (user) setAuthorized(true);
-      else router.replace('/sign-up-login-screen');
-    });
-
-    return () => { mounted = false; };
+    if (authService.getStoredUser()) {
+      setAuthorized(true);
+    } else {
+      router.replace('/sign-up-login-screen');
+    }
   }, [router]);
 
   if (!authorized) return null;
