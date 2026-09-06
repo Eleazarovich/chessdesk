@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import type { DashboardData, TimeFilter } from '@/lib/types';
 import { dashboardService } from '@/lib/services/dashboardService';
+import { authService } from '@/lib/services/authService';
+import { settingsService } from '@/lib/services/settingsService';
 import KpiBentoGrid from './KpiBentoGrid';
 import RevenueChart from './RevenueChart';
 import SessionsBarChart from './SessionsBarChart';
@@ -21,12 +23,27 @@ export default function DashboardContent() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState('ChessDesk');
 
   useEffect(() => {
+    const coachId = authService.getCurrentCoachId();
+    if (!coachId) {
+      setError('Your session has expired. Please sign in again.');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
-    dashboardService.getDashboardData('coach-001', filter)
-      .then(d => { setData(d); setLoading(false); })
+    Promise.all([
+      dashboardService.getDashboardData(coachId, filter),
+      settingsService.getProfile(coachId),
+    ])
+      .then(([dashboard, profile]) => {
+        setData(dashboard);
+        setBusinessName(profile.business_name || profile.name);
+        setLoading(false);
+      })
       .catch(() => { setError('Failed to load dashboard data. Please try again.'); setLoading(false); });
   }, [filter]);
 
@@ -37,7 +54,7 @@ export default function DashboardContent() {
         <div>
           <h1 className="font-display text-xl font-semibold" style={{ color: 'var(--foreground)' }}>Dashboard</h1>
           <p className="text-sm mt-0.5" style={{ color: 'var(--foreground-muted)' }}>
-            Nkosi Chess Academy — financial & activity overview
+            {businessName} — financial & activity overview
           </p>
         </div>
         <div className="flex items-center gap-3">

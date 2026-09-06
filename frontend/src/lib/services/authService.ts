@@ -1,6 +1,5 @@
 import type { AuthUser } from '../types';
-
-// BACKEND INTEGRATION POINT: Replace with real auth provider (Supabase, Firebase, NextAuth, etc.)
+import { apiClient } from '../api';
 
 interface SignUpData {
   name: string;
@@ -13,55 +12,59 @@ interface LoginData {
   password: string;
 }
 
-const MOCK_USER: AuthUser = {
-  id: 'coach-001',
-  email: 'thabo@chessops.co.za',
-  name: 'Thabo Nkosi',
-};
+export const AUTH_STORAGE_KEY = 'chessops_auth';
 
-const MOCK_PASSWORD = 'chess2026!';
-const AUTH_KEY = 'chessops_auth';
+interface AuthResponse extends AuthUser {
+  access_token: string;
+  token_type: string;
+}
+
+function storeUser(user: AuthUser): AuthUser {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+  }
+  return user;
+}
 
 export const authService = {
   async login(data: LoginData): Promise<AuthUser> {
-    await new Promise(r => setTimeout(r, 600));
-    if (data.email === MOCK_USER.email && data.password === MOCK_PASSWORD) {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(AUTH_KEY, JSON.stringify(MOCK_USER));
-      }
-      return MOCK_USER;
-    }
-    throw new Error('Invalid credentials — use the demo accounts below to sign in');
+    const response = await apiClient.post<AuthResponse>('/auth/login', data);
+    apiClient.setAccessToken(response.access_token);
+    return storeUser({ id: response.id, email: response.email, name: response.name });
   },
 
   async signUp(data: SignUpData): Promise<AuthUser> {
-    await new Promise(r => setTimeout(r, 800));
-    const user: AuthUser = { id: 'coach-new', email: data.email, name: data.name };
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(AUTH_KEY, JSON.stringify(user));
-    }
-    return user;
+    const response = await apiClient.post<AuthResponse>('/auth/signup', data);
+    apiClient.setAccessToken(response.access_token);
+    return storeUser({ id: response.id, email: response.email, name: response.name });
   },
 
   async logout(): Promise<void> {
-    await new Promise(r => setTimeout(r, 200));
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(AUTH_KEY);
+    try {
+      await apiClient.post('/auth/logout');
+    } finally {
+      apiClient.clearAccessToken();
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+      }
     }
   },
 
   async resetPassword(email: string): Promise<void> {
-    await new Promise(r => setTimeout(r, 600));
-    console.log(`[Mock] Password reset email sent to ${email}`);
+    await apiClient.post('/auth/password/reset', { email });
   },
 
   getStoredUser(): AuthUser | null {
     if (typeof window === 'undefined') return null;
     try {
-      const raw = localStorage.getItem(AUTH_KEY);
+      const raw = localStorage.getItem(AUTH_STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
+  },
+
+  getCurrentCoachId(): string | null {
+    return this.getStoredUser()?.id ?? null;
   },
 };

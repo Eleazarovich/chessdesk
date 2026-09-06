@@ -4,10 +4,8 @@ info:
   title: ChessDesk Backend API
   version: 0.1.0
   description: >-
-    API contract for the ChessDesk frontend. The current frontend service modules
-    are mock implementations, so this contract is inferred from their public
-    method signatures, TypeScript models, and integration comments. Authenticated
-    requests use the session cookie set by the authentication endpoints.
+    API contract for the ChessDesk frontend. Authenticated requests use the
+    session cookie set by the authentication endpoints.
 
 servers:
   - url: /api/v1

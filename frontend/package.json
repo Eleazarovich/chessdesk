@@ -46,6 +46,7 @@
     "lint:fix": "next lint --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md,json}\"",
     "serve": "next start",
+    "test": "vitest run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,7 +1,9 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
+import { authService } from '@/lib/services/authService';
+import { useRouter } from 'next/navigation';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -9,8 +11,20 @@ interface AppLayoutProps {
 }
 
 export default function AppLayout({ children, activePath }: AppLayoutProps) {
+  const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
+
+  useEffect(() => {
+    if (authService.getStoredUser()) {
+      setAuthorized(true);
+    } else {
+      router.replace('/sign-up-login-screen');
+    }
+  }, [router]);
+
+  if (!authorized) return null;
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--background)' }}>

@@ -3,6 +3,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { sessionService } from '@/lib/services/sessionService';
 import { clientService } from '@/lib/services/clientService';
+import { authService } from '@/lib/services/authService';
 import type { Session, SessionStatus, SessionType, ClientWithDetails } from '@/lib/types';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
@@ -79,7 +80,9 @@ function SessionModal({ open, onClose, onSuccess, clients, editSession }: Sessio
       if (isEdit && editSession) {
         result = await sessionService.updateSession(editSession.id, form);
       } else {
-        result = await sessionService.createSession({ ...form, coach_id: 'coach-001', actual_duration: null });
+        const coachId = authService.getCurrentCoachId();
+        if (!coachId) throw new Error('Authentication required');
+        result = await sessionService.createSession({ ...form, coach_id: coachId, actual_duration: null });
       }
       onSuccess(result);
     } catch {
@@ -170,9 +173,14 @@ export default function SessionsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const coachId = authService.getCurrentCoachId();
+    if (!coachId) {
+      setLoading(false);
+      return;
+    }
     Promise.all([
-      sessionService.getSessions('coach-001'),
-      clientService.getClients('coach-001'),
+      sessionService.getSessions(coachId),
+      clientService.getClients(coachId),
     ]).then(([s, c]) => {
       if (cancelled) return;
       setSessions(s.sort((a, b) => b.date.localeCompare(a.date)));

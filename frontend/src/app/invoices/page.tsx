@@ -3,6 +3,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { invoiceService } from '@/lib/services/invoiceService';
 import { clientService } from '@/lib/services/clientService';
+import { authService } from '@/lib/services/authService';
 import type { Invoice, InvoiceStatus, ClientWithDetails } from '@/lib/types';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
@@ -76,9 +77,11 @@ function InvoiceModal({ open, onClose, onSuccess, clients, editInvoice }: Invoic
       if (isEdit && editInvoice) {
         result = await invoiceService.updateInvoice(editInvoice.id, form);
       } else {
+        const coachId = authService.getCurrentCoachId();
+        if (!coachId) throw new Error('Authentication required');
         result = await invoiceService.createInvoice({
           ...form,
-          coach_id: 'coach-001',
+          coach_id: coachId,
           status: 'unpaid',
           paid_date: null,
           payment_method: null,
@@ -247,9 +250,14 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const coachId = authService.getCurrentCoachId();
+    if (!coachId) {
+      setLoading(false);
+      return;
+    }
     Promise.all([
-      invoiceService.getInvoices('coach-001'),
-      clientService.getClients('coach-001'),
+      invoiceService.getInvoices(coachId),
+      clientService.getClients(coachId),
     ]).then(([inv, c]) => {
       if (cancelled) return;
       setInvoices(inv.sort((a, b) => b.invoice_date.localeCompare(a.invoice_date)));

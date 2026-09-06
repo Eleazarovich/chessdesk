@@ -1,7 +1,11 @@
 'use client';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppLogo from './ui/AppLogo';
+import { authService } from '@/lib/services/authService';
+import { clientService } from '@/lib/services/clientService';
+import { sessionService } from '@/lib/services/sessionService';
+import { invoiceService } from '@/lib/services/invoiceService';
 import {
   LayoutDashboard, Users, CalendarDays, ClipboardList,
   FileText, Banknote, Settings, ChevronLeft, ChevronRight,
@@ -12,18 +16,24 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
-  badge?: number;
+  badge?: keyof SidebarCounts;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: <LayoutDashboard size={18} /> },
-  { label: 'Clients', href: '/client-management', icon: <Users size={18} />, badge: 6 },
+  { label: 'Clients', href: '/client-management', icon: <Users size={18} />, badge: 'clients' },
   { label: 'Schedule', href: '/schedule', icon: <CalendarDays size={18} /> },
-  { label: 'Sessions', href: '/sessions', icon: <ClipboardList size={18} />, badge: 4 },
-  { label: 'Invoices', href: '/invoices', icon: <FileText size={18} />, badge: 3 },
+  { label: 'Sessions', href: '/sessions', icon: <ClipboardList size={18} />, badge: 'scheduledSessions' },
+  { label: 'Invoices', href: '/invoices', icon: <FileText size={18} />, badge: 'unpaidInvoices' },
   { label: 'Expenses', href: '/expenses', icon: <Banknote size={18} /> },
   { label: 'Settings', href: '/settings', icon: <Settings size={18} /> },
 ];
+
+interface SidebarCounts {
+  clients: number;
+  scheduledSessions: number;
+  unpaidInvoices: number;
+}
 
 interface SidebarProps {
   collapsed: boolean;
@@ -34,6 +44,31 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, activePath }: SidebarProps) {
+  const [counts, setCounts] = useState<SidebarCounts>({ clients: 0, scheduledSessions: 0, unpaidInvoices: 0 });
+
+  useEffect(() => {
+    const coachId = authService.getCurrentCoachId();
+    if (!coachId) return;
+
+    let cancelled = false;
+    Promise.all([
+      clientService.getClients(coachId),
+      sessionService.getSessions(coachId),
+      invoiceService.getInvoices(coachId),
+    ]).then(([clients, sessions, invoices]) => {
+      if (cancelled) return;
+      setCounts({
+        clients: clients.length,
+        scheduledSessions: sessions.filter(session => session.status === 'scheduled').length,
+        unpaidInvoices: invoices.filter(invoice => invoice.status === 'unpaid').length,
+      });
+    }).catch(() => {
+      // Sidebar counts are supplementary to the page-level data.
+    });
+
+    return () => { cancelled = true; };
+  }, []);
+
   const isActive = (href: string) => {
     if (href === '/') return activePath === '/' || activePath === undefined;
     return activePath?.startsWith(href);
@@ -53,7 +88,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           borderColor: 'var(--border)',
         }}
       >
-        <SidebarContent collapsed={collapsed} onToggle={onToggle} isActive={isActive} />
+        <SidebarContent collapsed={collapsed} onToggle={onToggle} isActive={isActive} counts={counts} />
       </aside>
 
       {/* Mobile sidebar */}
@@ -69,7 +104,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           borderRight: '1px solid var(--border)',
         }}
       >
-        <SidebarContent collapsed={false} onToggle={onMobileClose} isActive={isActive} isMobile />
+        <SidebarContent collapsed={false} onToggle={onMobileClose} isActive={isActive} isMobile counts={counts} />
       </aside>
     </>
   );
@@ -79,10 +114,11 @@ interface SidebarContentProps {
   collapsed: boolean;
   onToggle: () => void;
   isActive: (href: string) => boolean | undefined;
+  counts: SidebarCounts;
   isMobile?: boolean;
 }
 
-function SidebarContent({ collapsed, onToggle, isActive, isMobile }: SidebarContentProps) {
+function SidebarContent({ collapsed, onToggle, isActive, counts, isMobile }: SidebarContentProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -120,12 +156,12 @@ function SidebarContent({ collapsed, onToggle, isActive, isMobile }: SidebarCont
               {(!collapsed || isMobile) && (
                 <span className="flex-1 min-w-0 truncate">{item.label}</span>
               )}
-              {(!collapsed || isMobile) && item.badge !== undefined && (
+              {(!collapsed || isMobile) && item.badge !== undefined && counts[item.badge] > 0 && (
                 <span className="flex-shrink-0 text-2xs font-semibold px-1.5 py-0.5 rounded-full" style={{ background: 'var(--primary-muted)', color: 'var(--primary)' }}>
-                  {item.badge}
+                  {counts[item.badge]}
                 </span>
               )}
-              {collapsed && !isMobile && item.badge !== undefined && (
+              {collapsed && !isMobile && item.badge !== undefined && counts[item.badge] > 0 && (
                 <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ background: 'var(--primary)' }} />
               )}
             </Link>

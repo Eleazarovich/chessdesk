@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { settingsService } from '@/lib/services/settingsService';
+import { authService, AUTH_STORAGE_KEY } from '@/lib/services/authService';
 import type { Coach } from '@/lib/types';
 import Toggle from '@/components/ui/Toggle';
 import { User, Bell, Shield, Save, Check } from 'lucide-react';
@@ -30,7 +31,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    settingsService.getProfile('coach-001').then(data => {
+    const coachId = authService.getCurrentCoachId();
+    if (!coachId) {
+      setLoading(false);
+      return;
+    }
+    settingsService.getProfile(coachId).then(data => {
       if (cancelled) return;
       setCoach(data);
       setForm(data);
@@ -43,17 +49,18 @@ export default function SettingsPage() {
     if (!coach) return;
     setSaving(true);
     try {
-      const updated = await settingsService.updateProfile('coach-001', form);
+      const coachId = authService.getCurrentCoachId();
+      if (!coachId) throw new Error('Authentication required');
+      const updated = await settingsService.updateProfile(coachId, form);
       setCoach(updated);
       // Sync name to stored auth user so Topbar updates immediately
       if (typeof window !== 'undefined') {
-        const AUTH_KEY = 'chessops_auth';
         try {
-          const raw = localStorage.getItem(AUTH_KEY);
+          const raw = localStorage.getItem(AUTH_STORAGE_KEY);
           if (raw) {
             const stored = JSON.parse(raw);
             stored.name = updated.name ?? stored.name;
-            localStorage.setItem(AUTH_KEY, JSON.stringify(stored));
+            localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(stored));
           }
         } catch {}
         window.dispatchEvent(new Event('profileUpdated'));

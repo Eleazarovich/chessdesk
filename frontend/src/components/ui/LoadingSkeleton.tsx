@@ -1,7 +1,7 @@
 import React from 'react';
 
-export function SkeletonBlock({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-lg ${className}`} style={{ background: 'var(--surface-elevated)' }} />;
+export function SkeletonBlock({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
+  return <div className={`animate-pulse rounded-lg ${className}`} style={{ background: 'var(--surface-elevated)', ...style }} />;
 }
 
 export function KpiCardSkeleton() {
