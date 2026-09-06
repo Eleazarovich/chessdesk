@@ -20,7 +20,26 @@ export class ApiError extends Error {
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000/api/v1').replace(/\/$/, '');
 const ACCESS_TOKEN_KEY = 'chessdesk_access_token';
+const AUTH_STORAGE_KEY = 'chessops_auth';
+export const SESSION_EXPIRED_EVENT = 'chessdesk:session-expired';
 let accessToken: string | null = null;
+let sessionExpiryHandled = false;
+
+function handleUnauthorized(path: string): void {
+  accessToken = null;
+  if (typeof window === 'undefined') return;
+
+  sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+
+  // Login failures are expected to be rendered by the login form. Only
+  // protected requests should end the current application session.
+  if (path.startsWith('/auth/')) return;
+  if (sessionExpiryHandled || window.location.pathname === '/sign-up-login-screen') return;
+
+  sessionExpiryHandled = true;
+  window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+}
 
 function getAccessToken(): string | null {
   if (accessToken) return accessToken;
@@ -61,6 +80,7 @@ async function request<T>(path: string, init: RequestInit = {}, params?: Record<
   const payload = await parseResponse(response);
 
   if (!response.ok) {
+    if (response.status === 401) handleUnauthorized(path);
     throw new ApiError(response.status, (payload ?? null) as ApiErrorPayload | null);
   }
 
@@ -70,6 +90,7 @@ async function request<T>(path: string, init: RequestInit = {}, params?: Record<
 export const apiClient = {
   setAccessToken(token: string): void {
     accessToken = token;
+    sessionExpiryHandled = false;
     if (typeof window !== 'undefined') sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
   },
 

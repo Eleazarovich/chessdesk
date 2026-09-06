@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { authService } from '@/lib/services/authService';
+import { SESSION_EXPIRED_EVENT } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
 interface AppLayoutProps {
@@ -22,6 +23,16 @@ export default function AppLayout({ children, activePath }: AppLayoutProps) {
     } else {
       router.replace('/sign-up-login-screen');
     }
+  }, [router]);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setAuthorized(false);
+      router.replace('/sign-up-login-screen');
+    };
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
   }, [router]);
 
   if (!authorized) return null;
