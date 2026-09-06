@@ -21,7 +21,7 @@ router = APIRouter(tags=["Sessions"])
 
 def _notification(session: Session, notification_type: NotificationType) -> None:
     store = get_store()
-    client = store.clients.get(session.client_id)
+    client = store.get_client(session.client_id)
     if client is None:
         return
     payload = NotificationPayload(
@@ -39,7 +39,7 @@ async def list_sessions(
     current_user: UserRecord = Depends(get_current_user),
 ) -> list[Session]:
     ensure_coach(coach_id, current_user)
-    return [session for session in get_store().sessions.values() if session.coach_id == coach_id]
+    return get_store().list_sessions(coach_id)
 
 
 @router.post("/sessions", response_model=Session, status_code=status.HTTP_201_CREATED, operation_id="createSession")
@@ -51,7 +51,7 @@ async def create_session(
     ensure_client(payload.client_id, current_user)
     store = get_store()
     session = Session(id=store.next_id("session"), **payload.model_dump())
-    store.sessions[session.id] = session
+    store.save_session(session)
     _notification(session, NotificationType.scheduled)
     return session
 
@@ -75,7 +75,7 @@ async def update_session(
     new_client_id = updates.get("client_id", old_session.client_id)
     ensure_client(new_client_id, current_user)
     updated = Session.model_validate({**old_session.model_dump(), **updates})
-    get_store().sessions[sessionId] = updated
+    get_store().save_session(updated)
 
     status_changed = updated.status != old_session.status
     if status_changed and updated.status is SessionStatus.completed:
@@ -97,12 +97,7 @@ async def delete_session(
     current_user: UserRecord = Depends(get_current_user),
 ) -> None:
     ensure_session(sessionId, current_user)
-    store = get_store()
-    with store.lock:
-        del store.sessions[sessionId]
-        for session_ids in store.invoice_sessions.values():
-            while sessionId in session_ids:
-                session_ids.remove(sessionId)
+    get_store().delete_session(sessionId)
     response.status_code = status.HTTP_204_NO_CONTENT
     return None
 

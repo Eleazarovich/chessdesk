@@ -23,7 +23,7 @@ def enrich_client(client: Client) -> ClientWithDetails:
     store = get_store()
     upcoming = sorted(
         (
-            session for session in store.sessions.values()
+            session for session in store.sessions_for_client(client.id)
             if session.client_id == client.id
             and session.status.value == "scheduled"
             and session.date >= store.today()
@@ -31,13 +31,13 @@ def enrich_client(client: Client) -> ClientWithDetails:
         key=lambda session: (session.date, session.start_time),
     )
     outstanding = sum(
-        invoice.amount for invoice in store.invoices.values()
+        invoice.amount for invoice in store.invoices_for_client(client.id)
         if invoice.client_id == client.id and invoice.status.value == "unpaid"
     )
     return ClientWithDetails(
         **client.model_dump(),
-        individual_details=store.individual_details.get(client.id),
-        school_details=store.school_details.get(client.id),
+        individual_details=store.get_individual_details(client.id),
+        school_details=store.get_school_details(client.id),
         upcoming_session=(
             f"{upcoming[0].date.isoformat()} {upcoming[0].start_time}" if upcoming else None
         ),
@@ -51,8 +51,7 @@ async def list_clients(
     current_user: UserRecord = Depends(get_current_user),
 ) -> list[ClientWithDetails]:
     ensure_coach(coach_id, current_user)
-    store = get_store()
-    return [enrich_client(client) for client in store.clients.values() if client.coach_id == coach_id]
+    return [enrich_client(client) for client in get_store().list_clients(coach_id)]
 
 
 @router.post("", response_model=Client, status_code=status.HTTP_201_CREATED, operation_id="createClient")
@@ -75,15 +74,21 @@ async def create_client(
         notes=payload.notes,
         active=payload.active,
     )
-    store.clients[client_id] = client
+    individual_details = None
+    school_details = None
     if payload.individual_details is not None and payload.client_type.value == "individual":
-        store.individual_details[client_id] = IndividualStudentDetails(
+        individual_details = IndividualStudentDetails(
             client_id=client_id, **payload.individual_details.model_dump(),
         )
     if payload.school_details is not None and payload.client_type.value == "school":
-        store.school_details[client_id] = SchoolDetails(
+        school_details = SchoolDetails(
             client_id=client_id, **payload.school_details.model_dump(),
         )
+    store.save_client(
+        client,
+        individual_details=individual_details,
+        school_details=school_details,
+    )
     return client
 
 
@@ -104,7 +109,7 @@ async def update_client(
     old_client = ensure_client(clientId, current_user)
     updates = payload.model_dump(exclude_unset=True)
     updated = Client.model_validate({**old_client.model_dump(), **updates})
-    get_store().clients[clientId] = updated
+    get_store().save_client(updated)
     return updated
 
 
@@ -115,17 +120,6 @@ async def delete_client(
     current_user: UserRecord = Depends(get_current_user),
 ) -> None:
     ensure_client(clientId, current_user)
-    store = get_store()
-    with store.lock:
-        del store.clients[clientId]
-        store.individual_details.pop(clientId, None)
-        store.school_details.pop(clientId, None)
-        session_ids = [sid for sid, session in store.sessions.items() if session.client_id == clientId]
-        for session_id in session_ids:
-            del store.sessions[session_id]
-        invoice_ids = [iid for iid, invoice in store.invoices.items() if invoice.client_id == clientId]
-        for invoice_id in invoice_ids:
-            del store.invoices[invoice_id]
-            store.invoice_sessions.pop(invoice_id, None)
+    get_store().delete_client(clientId)
     response.status_code = status.HTTP_204_NO_CONTENT
     return None

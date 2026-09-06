@@ -49,13 +49,13 @@ def verify_password(password: str, encoded_hash: str) -> bool:
 
 def issue_token(user_id: str) -> str:
     token = secrets.token_urlsafe(32)
-    get_store().tokens[token] = user_id
+    get_store().issue_token(token, user_id)
     return token
 
 
 def revoke_token(token: str | None) -> None:
     if token:
-        get_store().tokens.pop(token, None)
+        get_store().revoke_token(token)
 
 
 def _unauthorized(message: str = "Authentication is required") -> HTTPException:
@@ -87,8 +87,8 @@ async def get_current_user(
     token = token_from_request(request, credentials)
     if not token:
         raise _unauthorized()
-    user_id = get_store().tokens.get(token)
-    user = get_store().user_by_id(user_id) if user_id else None
+    user_id = get_store().user_id_for_token(token)
+    user = get_store().user_by_id(user_id)
     if user is None:
         raise _unauthorized("The authentication token is invalid or expired")
     return user
@@ -103,7 +103,7 @@ def require_owned_coach(coach_id: str, current_user: UserRecord) -> None:
                 "code": "FORBIDDEN",
             },
         )
-    if get_store().coaches.get(coach_id) is None:
+    if get_store().get_coach(coach_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"message": "Coach not found", "code": "NOT_FOUND"},

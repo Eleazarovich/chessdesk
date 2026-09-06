@@ -13,7 +13,7 @@ def ensure_coach(coach_id: str, current_user: UserRecord) -> None:
 
 
 def ensure_client(client_id: str, current_user: UserRecord):
-    client = get_store().clients.get(client_id)
+    client = get_store().get_client(client_id)
     if client is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -24,7 +24,7 @@ def ensure_client(client_id: str, current_user: UserRecord):
 
 
 def ensure_session(session_id: str, current_user: UserRecord):
-    session = get_store().sessions.get(session_id)
+    session = get_store().get_session(session_id)
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -35,7 +35,7 @@ def ensure_session(session_id: str, current_user: UserRecord):
 
 
 def ensure_invoice(invoice_id: str, current_user: UserRecord):
-    invoice = get_store().invoices.get(invoice_id)
+    invoice = get_store().get_invoice(invoice_id)
     if invoice is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -46,7 +46,7 @@ def ensure_invoice(invoice_id: str, current_user: UserRecord):
 
 
 def ensure_expense(expense_id: str, current_user: UserRecord):
-    expense = get_store().expenses.get(expense_id)
+    expense = get_store().get_expense(expense_id)
     if expense is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -54,4 +54,3 @@ def ensure_expense(expense_id: str, current_user: UserRecord):
         )
     ensure_coach(expense.coach_id, current_user)
     return expense
-

@@ -15,7 +15,7 @@ router = APIRouter(prefix="/invoices", tags=["Invoices"])
 def _validate_session_ids(session_ids: list[str], coach_id: str, client_id: str) -> None:
     store = get_store()
     for session_id in session_ids:
-        session = store.sessions.get(session_id)
+        session = store.get_session(session_id)
         if session is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -34,7 +34,7 @@ async def list_invoices(
     current_user: UserRecord = Depends(get_current_user),
 ) -> list[Invoice]:
     ensure_coach(coach_id, current_user)
-    return [invoice for invoice in get_store().invoices.values() if invoice.coach_id == coach_id]
+    return get_store().list_invoices(coach_id)
 
 
 @router.post("", response_model=Invoice, status_code=status.HTTP_201_CREATED, operation_id="createInvoice")
@@ -50,8 +50,7 @@ async def create_invoice(
         id=store.next_id("inv"),
         **payload.model_dump(exclude={"session_ids"}),
     )
-    store.invoices[invoice.id] = invoice
-    store.invoice_sessions[invoice.id] = list(payload.session_ids)
+    store.save_invoice(invoice, payload.session_ids)
     return invoice
 
 
@@ -67,12 +66,11 @@ async def update_invoice(
     ensure_client(client_id, current_user)
     session_ids = updates.pop("session_ids", None)
     if session_ids is None:
-        session_ids = list(get_store().invoice_sessions.get(invoiceId, []))
+        session_ids = get_store().invoice_session_ids(invoiceId)
     _validate_session_ids(session_ids, old_invoice.coach_id, client_id)
     updated = Invoice.model_validate({**old_invoice.model_dump(), **updates})
     store = get_store()
-    store.invoices[invoiceId] = updated
-    store.invoice_sessions[invoiceId] = list(session_ids)
+    store.save_invoice(updated, session_ids)
     return updated
 
 
@@ -83,9 +81,7 @@ async def delete_invoice(
     current_user: UserRecord = Depends(get_current_user),
 ) -> None:
     ensure_invoice(invoiceId, current_user)
-    store = get_store()
-    store.invoices.pop(invoiceId, None)
-    store.invoice_sessions.pop(invoiceId, None)
+    get_store().delete_invoice(invoiceId)
     response.status_code = status.HTTP_204_NO_CONTENT
     return None
 
@@ -96,4 +92,4 @@ async def get_sessions_for_invoice(
     current_user: UserRecord = Depends(get_current_user),
 ) -> list[str]:
     ensure_invoice(invoiceId, current_user)
-    return list(get_store().invoice_sessions.get(invoiceId, []))
+    return get_store().invoice_session_ids(invoiceId)

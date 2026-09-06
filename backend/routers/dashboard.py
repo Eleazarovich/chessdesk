@@ -48,10 +48,11 @@ async def get_dashboard_data(
     today = store.today()
     period_start, period_end = _period(filter, today)
 
-    clients = [client for client in store.clients.values() if client.coach_id == coach_id]
-    sessions = [session for session in store.sessions.values() if session.coach_id == coach_id]
-    invoices = [invoice for invoice in store.invoices.values() if invoice.coach_id == coach_id]
-    expenses = [expense for expense in store.expenses.values() if expense.coach_id == coach_id]
+    clients = store.list_clients(coach_id)
+    sessions = store.list_sessions(coach_id)
+    invoices = store.list_invoices(coach_id)
+    expenses = store.list_expenses(coach_id)
+    clients_by_id = {client.id: client for client in clients}
 
     invoices_in_period = [period_invoice for period_invoice in invoices if period_start <= period_invoice.invoice_date < period_end]
     paid_in_period = [
@@ -72,14 +73,14 @@ async def get_dashboard_data(
     upcoming_view = [
         UpcomingSession(
             session_id=session.id,
-            client_name=store.clients[session.client_id].display_name,
+            client_name=clients_by_id[session.client_id].display_name,
             date=session.date,
             start_time=session.start_time,
             session_type=session.session_type,
             location=session.location,
         )
         for session in upcoming[:6]
-        if session.client_id in store.clients
+        if session.client_id in clients_by_id
     ]
 
     revenue_chart: list[RevenueChartPoint] = []

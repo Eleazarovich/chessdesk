@@ -18,7 +18,7 @@ async def list_expenses(
     current_user: UserRecord = Depends(get_current_user),
 ) -> list[Expense]:
     ensure_coach(coach_id, current_user)
-    return [expense for expense in get_store().expenses.values() if expense.coach_id == coach_id]
+    return get_store().list_expenses(coach_id)
 
 
 @router.post("", response_model=Expense, status_code=status.HTTP_201_CREATED, operation_id="createExpense")
@@ -29,7 +29,7 @@ async def create_expense(
     ensure_coach(payload.coach_id, current_user)
     store = get_store()
     expense = Expense(id=store.next_id("exp"), **payload.model_dump())
-    store.expenses[expense.id] = expense
+    store.save_expense(expense)
     return expense
 
 
@@ -44,7 +44,7 @@ async def update_expense(
         **old_expense.model_dump(),
         **payload.model_dump(exclude_unset=True),
     })
-    get_store().expenses[expenseId] = updated
+    get_store().save_expense(updated)
     return updated
 
 
@@ -55,6 +55,6 @@ async def delete_expense(
     current_user: UserRecord = Depends(get_current_user),
 ) -> None:
     ensure_expense(expenseId, current_user)
-    get_store().expenses.pop(expenseId, None)
+    get_store().delete_expense(expenseId)
     response.status_code = status.HTTP_204_NO_CONTENT
     return None
