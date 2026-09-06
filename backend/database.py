@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 DEFAULT_DATABASE_URL = "sqlite:///./chessdesk.db"
 DATABASE_URL_ENV = "DATABASE_URL"
@@ -162,6 +163,8 @@ def create_database_engine(database_url: str | None = None) -> Engine:
     engine_options: dict[str, Any] = {"future": True}
     if url.startswith("sqlite"):
         engine_options["connect_args"] = {"check_same_thread": False}
+        if url in {"sqlite://", "sqlite:///:memory:"}:
+            engine_options["poolclass"] = StaticPool
     return create_engine(url, **engine_options)
 
 
