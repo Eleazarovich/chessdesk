@@ -4,6 +4,15 @@ export interface ApiErrorPayload {
   field_errors?: Record<string, string[]>;
 }
 
+export type DataChangeMethod = 'POST' | 'PATCH' | 'DELETE';
+
+export interface DataChangeDetail {
+  method: DataChangeMethod;
+  path: string;
+  record: unknown;
+  occurredAt: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -22,8 +31,27 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:
 const ACCESS_TOKEN_KEY = 'chessdesk_access_token';
 const AUTH_STORAGE_KEY = 'chessops_auth';
 export const SESSION_EXPIRED_EVENT = 'chessdesk:session-expired';
+export const DATA_CHANGED_EVENT = 'chessdesk:data-changed';
 let accessToken: string | null = null;
 let sessionExpiryHandled = false;
+
+function notifyDataChanged(method: string, path: string, record: unknown): void {
+  if (
+    typeof window === 'undefined' ||
+    !['POST', 'PATCH', 'DELETE'].includes(method) ||
+    path.startsWith('/auth/') ||
+    path.startsWith('/notifications')
+  ) return;
+
+  window.dispatchEvent(new CustomEvent<DataChangeDetail>(DATA_CHANGED_EVENT, {
+    detail: {
+      method: method as DataChangeMethod,
+      path,
+      record,
+      occurredAt: new Date().toISOString(),
+    },
+  }));
+}
 
 function handleUnauthorized(path: string): void {
   accessToken = null;
@@ -67,6 +95,7 @@ async function parseResponse(response: Response): Promise<unknown> {
 
 async function request<T>(path: string, init: RequestInit = {}, params?: Record<string, string>): Promise<T> {
   const token = getAccessToken();
+  const method = (init.method ?? 'GET').toUpperCase();
   const response = await fetch(requestUrl(path, params), {
     ...init,
     credentials: 'include',
@@ -84,6 +113,7 @@ async function request<T>(path: string, init: RequestInit = {}, params?: Record<
     throw new ApiError(response.status, (payload ?? null) as ApiErrorPayload | null);
   }
 
+  notifyDataChanged(method, path, payload);
   return payload as T;
 }
 

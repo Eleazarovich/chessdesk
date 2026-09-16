@@ -8,6 +8,8 @@ import { sessionService } from '@/lib/services/sessionService';
 import { invoiceService } from '@/lib/services/invoiceService';
 import { useRouter } from 'next/navigation';
 import type { AuthUser, ClientWithDetails, Invoice, Session } from '@/lib/types';
+import { DATA_CHANGED_EVENT, type DataChangeDetail } from '@/lib/api';
+import { formatLocalDateTime } from '@/lib/dateUtils';
 
 interface TopbarProps {
   onMenuClick: () => void;
@@ -30,15 +32,148 @@ interface NotificationItem {
   body: string;
   time: string;
   read: boolean;
-  type: 'payment' | 'session' | 'invoice' | 'system';
+  type: 'client' | 'payment' | 'session' | 'invoice' | 'expense' | 'system';
+  href: string;
 }
 
 const notifColor: Record<NotificationItem['type'], string> = {
+  client: 'var(--info)',
   payment: 'var(--success)',
   session: 'var(--primary)',
   invoice: 'var(--warning)',
+  expense: '#F97316',
   system: 'var(--foreground-subtle)',
 };
+
+const NOTIFICATION_STORAGE_KEY = 'chessdesk_activity_notifications';
+const MAX_NOTIFICATIONS = 30;
+
+function notificationStorageKey(userId: string): string {
+  return `${NOTIFICATION_STORAGE_KEY}:${userId}`;
+}
+
+function readStoredNotifications(userId: string): NotificationItem[] {
+  try {
+    const raw = localStorage.getItem(notificationStorageKey(userId));
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is NotificationItem => (
+      item !== null &&
+      typeof item === 'object' &&
+      typeof (item as NotificationItem).id === 'string' &&
+      typeof (item as NotificationItem).title === 'string' &&
+      typeof (item as NotificationItem).body === 'string' &&
+      typeof (item as NotificationItem).time === 'string' &&
+      typeof (item as NotificationItem).read === 'boolean' &&
+      typeof (item as NotificationItem).href === 'string'
+    )).slice(0, MAX_NOTIFICATIONS);
+  } catch {
+    return [];
+  }
+}
+
+function persistNotifications(userId: string, notifications: NotificationItem[]): void {
+  try {
+    localStorage.setItem(notificationStorageKey(userId), JSON.stringify(notifications.slice(0, MAX_NOTIFICATIONS)));
+  } catch {
+    // Notifications are supplementary and should never interrupt a saved change.
+  }
+}
+
+function recordFrom(detail: DataChangeDetail): Record<string, unknown> {
+  return detail.record !== null && typeof detail.record === 'object'
+    ? detail.record as Record<string, unknown>
+    : {};
+}
+
+function textValue(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === 'string' && value ? value : null;
+}
+
+function makeNotificationId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function createActivityNotification(
+  detail: DataChangeDetail,
+  clientNameMap: Record<string, string>,
+): NotificationItem | null {
+  const [resource, resourceId] = detail.path.replace(/^\/+/, '').split('/');
+  const record = recordFrom(detail);
+  const method = detail.method;
+  const action = method === 'POST' ? 'created' : method === 'PATCH' ? 'updated' : 'deleted';
+  const hrefByResource: Record<string, string> = {
+    clients: '/client-management',
+    sessions: '/schedule',
+    invoices: '/invoices',
+    expenses: '/expenses',
+    coaches: '/settings',
+  };
+  const href = hrefByResource[resource];
+  if (!href) return null;
+
+  let title = '';
+  let body = '';
+  let type: NotificationItem['type'] = 'system';
+
+  if (resource === 'clients') {
+    const name = textValue(record, 'display_name') ?? 'A client';
+    title = `Client ${action}`;
+    body = `${name} was ${action}.`;
+    type = 'client';
+  } else if (resource === 'sessions') {
+    const clientName = clientNameMap[textValue(record, 'client_id') ?? ''] ?? 'A client';
+    const date = textValue(record, 'date');
+    const startTime = textValue(record, 'start_time');
+    const schedule = date && startTime ? ` · ${date} at ${startTime}` : '';
+    const status = textValue(record, 'status');
+    title = status === 'cancelled' ? 'Session cancelled'
+      : status === 'completed' ? 'Session completed'
+        : method === 'POST' ? 'Session scheduled' : 'Session updated';
+    body = `${clientName}${schedule}`;
+    type = 'session';
+  } else if (resource === 'invoices') {
+    const invoiceId = textValue(record, 'id') ?? resourceId ?? 'Invoice';
+    const amount = typeof record.amount === 'number' ? ` · R${record.amount.toLocaleString('en-ZA')}` : '';
+    title = textValue(record, 'status') === 'paid' ? 'Invoice marked paid' : `Invoice ${action}`;
+    body = `${invoiceId}${amount}`;
+    type = textValue(record, 'status') === 'paid' ? 'payment' : 'invoice';
+  } else if (resource === 'expenses') {
+    const amount = typeof record.amount === 'number' ? `R${record.amount.toLocaleString('en-ZA')}` : 'An expense';
+    const category = textValue(record, 'category');
+    title = `Expense ${action}`;
+    body = category ? `${amount} · ${category}` : amount;
+    type = 'expense';
+  } else if (resource === 'coaches' && detail.path.endsWith('/profile')) {
+    title = 'Profile updated';
+    body = 'Your account details were updated.';
+  } else {
+    return null;
+  }
+
+  return {
+    id: makeNotificationId(),
+    title,
+    body,
+    time: detail.occurredAt,
+    read: false,
+    type,
+    href,
+  };
+}
+
+function formatNotificationTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  const elapsed = Math.max(0, Date.now() - date.getTime());
+  if (elapsed < 60_000) return 'Just now';
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h ago`;
+  return formatLocalDateTime(date);
+}
 
 export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProps) {
   const router = useRouter();
@@ -55,7 +190,7 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
 
   // Notification state
   const [notifOpen, setNotifOpen] = useState(false);
-  const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(new Set());
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,6 +214,22 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
 
     return () => { cancelled = true; };
   }, []);
+
+  // Restore activity for this account and keep it in sync across tabs.
+  useEffect(() => {
+    if (!user?.id) {
+      setNotifications([]);
+      return;
+    }
+
+    const key = notificationStorageKey(user.id);
+    setNotifications(readStoredNotifications(user.id));
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === key) setNotifications(readStoredNotifications(user.id));
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [user?.id]);
 
   // Refresh user when profile is updated from settings
   useEffect(() => {
@@ -108,6 +259,27 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
     clients.forEach(client => { map[client.id] = client.display_name; });
     return map;
   }, [clients]);
+
+  // Every successful mutation made by the app becomes an activity notification.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const handleDataChanged = (event: Event) => {
+      const detail = (event as CustomEvent<DataChangeDetail>).detail;
+      if (!detail) return;
+      const notification = createActivityNotification(detail, clientNameMap);
+      if (!notification) return;
+
+      setNotifications(previous => {
+        const next = [notification, ...previous].slice(0, MAX_NOTIFICATIONS);
+        persistNotifications(user.id, next);
+        return next;
+      });
+    };
+
+    window.addEventListener(DATA_CHANGED_EVENT, handleDataChanged);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, handleDataChanged);
+  }, [user?.id, clientNameMap]);
 
   // Search logic runs against the records loaded from the backend.
   const searchResults = useMemo<SearchResult[]>(() => {
@@ -157,40 +329,6 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
     return results.slice(0, 8);
   }, [searchQuery, clients, sessions, invoices, clientNameMap]);
 
-  const notificationCandidates = useMemo<NotificationItem[]>(() => {
-    const upcoming = [...sessions]
-      .filter(session => session.status === 'scheduled' && new Date(`${session.date}T${session.start_time}`) >= new Date())
-      .sort((a, b) => `${a.date}T${a.start_time}`.localeCompare(`${b.date}T${b.start_time}`));
-    const unpaid = invoices.filter(invoice => invoice.status === 'unpaid');
-
-    return [
-      ...upcoming.slice(0, 3).map(session => ({
-        id: `session-${session.id}`,
-        title: 'Upcoming session',
-        body: `${clientNameMap[session.client_id] ?? 'Client'} · ${session.date} at ${session.start_time}`,
-        time: session.date,
-        read: false,
-        type: 'session' as const,
-      })),
-      ...unpaid.slice(0, 3).map(invoice => ({
-        id: `invoice-${invoice.id}`,
-        title: 'Invoice unpaid',
-        body: `${invoice.id} · ${clientNameMap[invoice.client_id] ?? 'Client'} · R${invoice.amount.toLocaleString('en-ZA')}`,
-        time: `Due ${invoice.due_date}`,
-        read: false,
-        type: 'invoice' as const,
-      })),
-    ].slice(0, 5);
-  }, [sessions, invoices, clientNameMap]);
-
-  const notifications = useMemo(
-    () => notificationCandidates.map(notification => ({
-      ...notification,
-      read: readNotificationIds.has(notification.id),
-    })),
-    [notificationCandidates, readNotificationIds],
-  );
-
   const handleSearchKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); }
   };
@@ -202,7 +340,27 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
-  const markAllRead = () => setReadNotificationIds(new Set(notificationCandidates.map(notification => notification.id)));
+  const markNotificationRead = (id: string) => {
+    if (!user?.id) return;
+    setNotifications(previous => {
+      const next = previous.map(notification => notification.id === id ? { ...notification, read: true } : notification);
+      persistNotifications(user.id, next);
+      return next;
+    });
+  };
+  const markAllRead = () => {
+    if (!user?.id) return;
+    setNotifications(previous => {
+      const next = previous.map(notification => ({ ...notification, read: true }));
+      persistNotifications(user.id, next);
+      return next;
+    });
+  };
+  const handleNotificationClick = (notification: NotificationItem) => {
+    markNotificationRead(notification.id);
+    router.push(notification.href);
+    setNotifOpen(false);
+  };
 
   const initials = user?.name
     ? user.name.split(' ').map((w: string) => w[0]).slice(0, 2).join('')
@@ -331,26 +489,34 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
               )}
             </div>
             <ul className="max-h-72 overflow-y-auto">
-              {notifications.map(n => (
-                <li
-                  key={n.id}
-                  className="flex gap-3 px-4 py-3 border-b last:border-b-0 transition-colors hover:bg-surface-elevated cursor-default"
-                  style={{ borderColor: 'var(--border)', background: n.read ? 'transparent' : 'rgba(139,92,246,0.06)' }}
-                >
-                  <span
-                    className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5"
-                    style={{ background: notifColor[n.type] }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-snug" style={{ color: 'var(--foreground)' }}>{n.title}</p>
-                    <p className="text-xs mt-0.5 leading-snug" style={{ color: 'var(--foreground-subtle)' }}>{n.body}</p>
-                    <p className="text-xs mt-1 opacity-60" style={{ color: 'var(--foreground-subtle)', fontSize: '0.65rem' }}>{n.time}</p>
-                  </div>
+              {notifications.length === 0 ? (
+                <li className="px-4 py-8 text-center text-sm" style={{ color: 'var(--foreground-subtle)' }}>
+                  No recent activity
+                </li>
+              ) : notifications.map(n => (
+                <li key={n.id} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleNotificationClick(n)}
+                    className="w-full flex gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-elevated"
+                    style={{ background: n.read ? 'transparent' : 'rgba(139,92,246,0.06)' }}
+                  >
+                    <span
+                      className="flex-shrink-0 w-2 h-2 rounded-full mt-1.5"
+                      style={{ background: n.read ? 'var(--foreground-subtle)' : notifColor[n.type] }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-snug" style={{ color: 'var(--foreground)' }}>{n.title}</p>
+                      <p className="text-xs mt-0.5 leading-snug" style={{ color: 'var(--foreground-muted)' }}>{n.body}</p>
+                      <p className="text-xs mt-1 opacity-60" style={{ color: 'var(--foreground-subtle)', fontSize: '0.65rem' }}>{formatNotificationTime(n.time)}</p>
+                    </div>
+                    {!n.read && <span className="text-2xs mt-0.5" style={{ color: 'var(--primary)' }}>New</span>}
+                  </button>
                 </li>
               ))}
             </ul>
             <div className="px-4 py-2.5 border-t text-center" style={{ borderColor: 'var(--border)' }}>
-              <span className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>Live data from backend</span>
+              <span className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>Activity from this workspace</span>
             </div>
           </div>
         )}
