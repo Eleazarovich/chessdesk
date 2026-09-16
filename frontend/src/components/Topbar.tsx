@@ -294,7 +294,7 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
         )}
       </div>
 
-      <div className="flex-1 lg:flex-none" />
+      <div className="flex-1" />
 
       {/* Notifications */}
       <div ref={notifRef} className="relative">
