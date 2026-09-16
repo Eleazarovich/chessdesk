@@ -50,7 +50,7 @@ def test_auth_issues_bearer_token_and_logout_revokes_it() -> None:
     assert len(protected.json()) == 6
     cookie_protected = request(
         "GET", "/api/v1/clients", params={"coach_id": "coach-001"},
-        headers={"Cookie": f"chessdesk_session={response.cookies['chessdesk_session']}"},
+        cookies={"chessdesk_session": response.cookies["chessdesk_session"]},
     )
     assert cookie_protected.status_code == 200
 
