@@ -7,6 +7,8 @@ import { authService } from '@/lib/services/authService';
 import type { Invoice, InvoiceStatus, ClientWithDetails } from '@/lib/types';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
+import DateTimeInput from '@/components/ui/DateTimeInput';
+import { isCurrentOrFutureDate } from '@/lib/dateUtils';
 import { FileText, CheckCircle, Search, Plus, Edit2, Trash2, Download } from 'lucide-react';
 
 const STATUS_FILTERS: { label: string; value: InvoiceStatus | 'all' }[] = [
@@ -70,6 +72,10 @@ function InvoiceModal({ open, onClose, onSuccess, clients, editInvoice }: Invoic
       setError('Client, dates and amount are required.');
       return;
     }
+    if (!isCurrentOrFutureDate(form.invoice_date) || !isCurrentOrFutureDate(form.due_date)) {
+      setError('Invoice and due dates cannot be in the past.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -123,11 +129,11 @@ function InvoiceModal({ open, onClose, onSuccess, clients, editInvoice }: Invoic
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Invoice Date *</label>
-            <input type="date" value={form.invoice_date} onChange={e => set('invoice_date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
+            <DateTimeInput type="date" value={form.invoice_date} onChange={e => set('invoice_date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
           </div>
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Due Date *</label>
-            <input type="date" value={form.due_date} onChange={e => set('due_date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
+            <DateTimeInput type="date" value={form.due_date} onChange={e => set('due_date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
           </div>
         </div>
         <div className="space-y-1.5">

@@ -7,6 +7,8 @@ import { authService } from '@/lib/services/authService';
 import type { Session, SessionStatus, SessionType, ClientWithDetails } from '@/lib/types';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Modal from '@/components/ui/Modal';
+import DateTimeInput from '@/components/ui/DateTimeInput';
+import { isCurrentOrFutureDate, isCurrentOrFutureDateTime } from '@/lib/dateUtils';
 import { ClipboardList, Clock, MapPin, Monitor, Search, Plus, Edit2, Trash2 } from 'lucide-react';
 
 const STATUS_FILTERS: { label: string; value: SessionStatus | 'all' }[] = [
@@ -73,6 +75,14 @@ function SessionModal({ open, onClose, onSuccess, clients, editSession }: Sessio
       setError('Client, date and start time are required.');
       return;
     }
+    if (!isCurrentOrFutureDate(form.date)) {
+      setError('Date cannot be in the past.');
+      return;
+    }
+    if (!isCurrentOrFutureDateTime(form.date, form.start_time)) {
+      setError('Start time cannot be in the past.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -119,11 +129,11 @@ function SessionModal({ open, onClose, onSuccess, clients, editSession }: Sessio
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Date *</label>
-            <input type="date" value={form.date} onChange={e => set('date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
+            <DateTimeInput type="date" value={form.date} onChange={e => set('date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
           </div>
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Start Time *</label>
-            <input type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
+            <DateTimeInput type="time" dateValue={form.date} value={form.start_time} onChange={e => set('start_time', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">

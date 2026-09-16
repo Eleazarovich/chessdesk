@@ -5,6 +5,8 @@ import { expenseService } from '@/lib/services/expenseService';
 import { authService } from '@/lib/services/authService';
 import type { Expense, ExpenseCategory } from '@/lib/types';
 import Modal from '@/components/ui/Modal';
+import DateTimeInput from '@/components/ui/DateTimeInput';
+import { isCurrentOrFutureDate } from '@/lib/dateUtils';
 import { Receipt, Plus, Trash2, Edit2 } from 'lucide-react';
 
 const CATEGORY_LABELS: Record<ExpenseCategory, string> = {
@@ -77,6 +79,10 @@ function ExpenseModal({ open, onClose, onSuccess, editExpense }: ExpenseModalPro
       setError('Date, amount and description are required.');
       return;
     }
+    if (!isCurrentOrFutureDate(form.date)) {
+      setError('Date cannot be in the past.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -115,7 +121,7 @@ function ExpenseModal({ open, onClose, onSuccess, editExpense }: ExpenseModalPro
         {error && <div className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--destructive-muted)', border: '1px solid var(--destructive)', color: 'var(--destructive)' }}>{error}</div>}
         <div className="space-y-1.5">
           <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Date *</label>
-          <input type="date" value={form.date} onChange={e => set('date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
+          <DateTimeInput type="date" value={form.date} onChange={e => set('date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
         </div>
         <div className="space-y-1.5">
           <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Amount (ZAR) *</label>

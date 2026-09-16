@@ -256,6 +256,7 @@
     background: var(--background-secondary);
     border: 1px solid var(--border);
     color: var(--foreground);
+    color-scheme: dark;
     border-radius: var(--radius-sm);
     transition: border-color 150ms ease, box-shadow 150ms ease;
   }
