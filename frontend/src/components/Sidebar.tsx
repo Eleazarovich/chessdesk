@@ -20,7 +20,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', href: '/', icon: <LayoutDashboard size={18} /> },
+  { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard size={18} /> },
   { label: 'Clients', href: '/client-management', icon: <Users size={18} />, badge: 'clients' },
   { label: 'Schedule', href: '/schedule', icon: <CalendarDays size={18} /> },
   { label: 'Sessions', href: '/sessions', icon: <ClipboardList size={18} />, badge: 'scheduledSessions' },
@@ -72,7 +72,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   }, []);
 
   const isActive = (href: string) => {
-    if (href === '/') return activePath === '/' || activePath === undefined;
     return activePath?.startsWith(href);
   };
 

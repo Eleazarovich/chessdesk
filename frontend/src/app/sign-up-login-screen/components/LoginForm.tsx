@@ -36,7 +36,7 @@ export default function LoginForm({ onForgotPassword }: LoginFormProps) {
     setServerError('');
     try {
       await authService.login({ email: data.email, password: data.password });
-      router.push('/');
+      router.push('/dashboard');
     } catch (err: unknown) {
       setServerError(err instanceof Error ? err.message : 'Login failed. Please try again.');
     } finally {

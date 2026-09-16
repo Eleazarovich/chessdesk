@@ -57,7 +57,7 @@ export default function AuthContent() {
 
           <div className="p-6">
             {view === 'login' && <LoginForm onForgotPassword={() => setView('forgot')} />}
-            {view === 'signup' && <SignUpForm onSuccess={() => router.push('/')} />}
+            {view === 'signup' && <SignUpForm onSuccess={() => router.push('/dashboard')} />}
             {view === 'forgot' && <ForgotPasswordForm onBack={() => setView('login')} />}
           </div>
         </div>
