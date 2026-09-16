@@ -1,3 +1,5 @@
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export function getLocalDateString(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -9,6 +11,12 @@ export function getLocalTimeString(date = new Date()): string {
   const hours = String(date.getHours()).padStart(2, '0');
   const minutes = String(date.getMinutes()).padStart(2, '0');
   return `${hours}:${minutes}`;
+}
+
+export function formatLocalDateTime(date = new Date()): string {
+  const month = SHORT_MONTHS[date.getMonth()];
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${day} ${month} ${date.getFullYear()}, ${getLocalTimeString(date)}`;
 }
 
 export function isCurrentOrFutureDate(value: string, now = new Date()): boolean {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatLocalDateTime,
   getLocalDateString,
   getLocalTimeString,
   isCurrentOrFutureDate,
@@ -12,6 +13,7 @@ describe('dateUtils', () => {
   it('formats local dates and times for date/time inputs', () => {
     expect(getLocalDateString(now)).toBe('2026-09-16');
     expect(getLocalTimeString(now)).toBe('14:30');
+    expect(formatLocalDateTime(now)).toBe('16 Sep 2026, 14:30');
   });
 
   it('accepts today and future dates but rejects past dates', () => {

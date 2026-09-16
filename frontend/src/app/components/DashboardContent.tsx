@@ -1,9 +1,10 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { DashboardData, TimeFilter } from '@/lib/types';
 import { dashboardService } from '@/lib/services/dashboardService';
 import { authService } from '@/lib/services/authService';
 import { settingsService } from '@/lib/services/settingsService';
+import { formatLocalDateTime } from '@/lib/dateUtils';
 import KpiBentoGrid from './KpiBentoGrid';
 import RevenueChart from './RevenueChart';
 import SessionsBarChart from './SessionsBarChart';
@@ -24,8 +25,9 @@ export default function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState('ChessDesk');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  useEffect(() => {
+  const loadDashboard = useCallback(async () => {
     const coachId = authService.getCurrentCoachId();
     if (!coachId) {
       setError('Your session has expired. Please sign in again.');
@@ -35,17 +37,24 @@ export default function DashboardContent() {
 
     setLoading(true);
     setError(null);
-    Promise.all([
-      dashboardService.getDashboardData(coachId, filter),
-      settingsService.getProfile(coachId),
-    ])
-      .then(([dashboard, profile]) => {
-        setData(dashboard);
-        setBusinessName(profile.business_name || profile.name);
-        setLoading(false);
-      })
-      .catch(() => { setError('Failed to load dashboard data. Please try again.'); setLoading(false); });
+    try {
+      const [dashboard, profile] = await Promise.all([
+        dashboardService.getDashboardData(coachId, filter),
+        settingsService.getProfile(coachId),
+      ]);
+      setData(dashboard);
+      setBusinessName(profile.business_name || profile.name);
+      setLastUpdated(new Date());
+    } catch {
+      setError('Failed to load dashboard data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   }, [filter]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
 
   return (
     <div className="space-y-4 fade-in">
@@ -58,10 +67,16 @@ export default function DashboardContent() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs flex items-center gap-1.5" style={{ color: 'var(--foreground-subtle)' }}>
-            <RefreshCw size={11} />
-            Updated 06 Sep 2026, 01:04
-          </span>
+          <button
+            type="button"
+            onClick={() => void loadDashboard()}
+            disabled={loading}
+            className="text-xs flex items-center gap-1.5 btn-ghost disabled:cursor-not-allowed disabled:opacity-60"
+            title="Refresh dashboard"
+          >
+            <RefreshCw size={11} className={loading ? 'animate-spin' : undefined} />
+            {loading ? 'Updating…' : lastUpdated ? `Updated ${formatLocalDateTime(lastUpdated)}` : 'Not updated yet'}
+          </button>
           {/* Time filter tabs */}
           <div className="flex rounded-lg p-0.5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             {TIME_FILTERS.map(f => (
