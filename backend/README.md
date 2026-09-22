@@ -70,14 +70,14 @@ make integration
 ```
 
 This builds and starts the Compose stack, then runs tests against
-`http://127.0.0.1:8000`. The tests check the seeded demo account, bearer and
-cookie authentication, signup and account isolation, validation errors, and
-client, session, invoice, and expense persistence through the API. Created
-clients, related sessions and invoices, and test expenses are deleted during
-cleanup; signup scenarios use unique email addresses. The Compose stack stays
-running after the tests, and its PostgreSQL volume is left intact. To use an
-already running stack or another host port, set `CHESSDESK_BASE_URL` before running
-`uv run pytest -m integration integration_tests`.
+`http://127.0.0.1:8000`. The tests check the served frontend, seeded demo
+account, bearer and cookie authentication, signup and account isolation,
+validation errors, and client, session, invoice, and expense persistence
+through the API. Created clients, related sessions and invoices, and test
+expenses are deleted during cleanup; signup scenarios use unique email
+addresses. The Compose stack stays running after the tests, and its PostgreSQL
+volume is left intact. For an existing stack or another host port, set
+`CHESSDESK_BASE_URL` before running `uv run pytest -m integration integration_tests`.
 
 On first startup, the database tables are created and the demo data is seeded
 when the database is empty. Subsequent restarts preserve application data.

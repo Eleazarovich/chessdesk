@@ -16,6 +16,10 @@ pytestmark = pytest.mark.integration
 def test_compose_api_seeded_auth_and_logout(api_client: httpx.Client) -> None:
     api_client.cookies.clear()
 
+    frontend = api_client.get("/")
+    assert frontend.status_code == 200
+    assert frontend.headers["content-type"].startswith("text/html")
+
     schema = api_client.get("/api/v1/openapi.json")
     assert schema.status_code == 200
     assert schema.json()["info"]["title"] == "ChessDesk Backend API"
