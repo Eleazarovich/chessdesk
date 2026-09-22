@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .routers import auth, clients, dashboard, expenses, invoices, profile, sessions
 
@@ -94,3 +97,8 @@ def custom_openapi() -> dict:
 
 
 app.openapi = custom_openapi
+
+
+frontend_static_dir = Path(__file__).resolve().parent / "static"
+if frontend_static_dir.is_dir():
+    app.mount("/", StaticFiles(directory=frontend_static_dir, html=True), name="frontend")

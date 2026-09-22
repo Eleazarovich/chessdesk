@@ -21,6 +21,21 @@ used later without changing the application repository layer.
 The API is available at `http://127.0.0.1:8000/api/v1`; interactive docs are at
 `/api/v1/docs`.
 
+Build and run the combined frontend and backend container from the repository
+root:
+
+```bash
+docker build -t chessdesk .
+docker run --rm -p 8000:8000 \
+  -v chessdesk-data:/data \
+  -e DATABASE_URL=sqlite:////data/chessdesk.db \
+  chessdesk
+```
+
+Open `http://localhost:8000` for the frontend or `http://localhost:8000/api/v1/docs`
+for the API docs. The named Docker volume keeps the SQLite database across
+container restarts.
+
 The seeded demo account is `thabo@chessops.co.za` / `chess2026!`. Login returns
 an `access_token` for `Authorization: Bearer <token>` requests and also sets the
 `chessdesk_session` HttpOnly cookie.

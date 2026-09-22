@@ -26,8 +26,9 @@ A modern Next.js 15 application built with TypeScript and Tailwind CSS.
 3. Open [http://localhost:4028](http://localhost:4028) with your browser to see the result.
 
 The frontend calls the FastAPI backend at `http://localhost:8000/api/v1` by
-default. Start it from the repository root with `make dev`, or set
-`NEXT_PUBLIC_API_BASE_URL` in `.env.local` when using another backend URL.
+default. The Docker build sets it to the same-host `/api/v1` path. During local
+development, start both services from the repository root with `make dev`, or
+set `NEXT_PUBLIC_API_BASE_URL` in `.env.local` when using another backend URL.
 
 ## 📁 Project Structure
 
