@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, create_engine
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -157,14 +157,22 @@ def database_url_from_env() -> str:
 
 
 def create_database_engine(database_url: str | None = None) -> Engine:
-    """Create an engine without coupling the repository to one database vendor."""
+    """Create an engine for SQLite or PostgreSQL using the installed drivers."""
 
-    url = database_url or database_url_from_env()
+    url = make_url(database_url or database_url_from_env())
+    # SQLAlchemy's bare ``postgresql://`` URL selects psycopg2 by default.
+    # The backend ships psycopg 3, so select it explicitly for standard URLs
+    # (including the legacy ``postgres://`` spelling used by some providers).
+    if url.drivername in {"postgres", "postgresql"}:
+        url = url.set(drivername="postgresql+psycopg")
+
     engine_options: dict[str, Any] = {"future": True}
-    if url.startswith("sqlite"):
+    if url.get_backend_name() == "sqlite":
         engine_options["connect_args"] = {"check_same_thread": False}
-        if url in {"sqlite://", "sqlite:///:memory:"}:
+        if url.database in {None, "", ":memory:"}:
             engine_options["poolclass"] = StaticPool
+    elif url.get_backend_name() == "postgresql":
+        engine_options["pool_pre_ping"] = True
     return create_engine(url, **engine_options)
 
 
