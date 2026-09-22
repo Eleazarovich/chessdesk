@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: chessdesk
+      POSTGRES_USER: chessdesk
+      POSTGRES_PASSWORD: chessdesk
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chessdesk -d chessdesk"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://chessdesk:chessdesk@postgres:5432/chessdesk
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:
