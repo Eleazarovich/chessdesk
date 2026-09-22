@@ -28,7 +28,8 @@ COPY backend/ ./backend/
 COPY --from=frontend-build /frontend/out/ ./backend/static/
 
 RUN useradd --create-home --uid 10001 app \
-    && chown -R app:app /app
+    && mkdir -p /data \
+    && chown -R app:app /app /data
 USER app
 
 EXPOSE 8000
