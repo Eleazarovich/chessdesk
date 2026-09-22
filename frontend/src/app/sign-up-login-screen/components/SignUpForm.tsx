@@ -31,8 +31,8 @@ export default function SignUpForm({ onSuccess }: SignUpFormProps) {
     try {
       await authService.signUp({ name: data.name, email: data.email, password: data.password });
       onSuccess();
-    } catch {
-      setServerError('Failed to create account. Please try again.');
+    } catch (err: unknown) {
+      setServerError(err instanceof Error ? err.message : 'Failed to create account. Please try again.');
     } finally {
       setLoading(false);
     }
