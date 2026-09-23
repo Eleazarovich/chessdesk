@@ -8,6 +8,7 @@ Metadata:
     arch: GitHub Actions OIDC -> scoped IAM role -> ECR image publishing and Systems Manager Run Command
     must:
       - Trust audience is sts.amazonaws.com and subjects are limited to this repository's main branch and dev/production environments.
+      - Keep the dev and production GitHub environments restricted to main with admin bypass disabled.
     ref:
       - at: deploy/README.md
         has: Environment stack names, ECR setup, deployment selection, trust scope, and required outputs
@@ -46,6 +47,7 @@ Resources:
         why: lets the main workflow publish releases and invoke dev/prod deployments with short-lived OIDC credentials instead of stored AWS keys
         must:
           - Trust only this repository's main-branch and dev/production environment subjects with sts.amazonaws.com audience.
+          - Keep GitHub dev/production environments restricted to main and disable admin bypass.
           - Run commands only on ChessDesk EC2 instances tagged Project=ChessDesk and Environment=dev or prod.
           - Limit image publishing to the shared ChessDesk repository.
         mutable: change-with-constraints

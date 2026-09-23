@@ -47,7 +47,8 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    ECR repository and a role that can push images and send SSM commands only to
    ChessDesk instances tagged for either environment. The role trusts the
    immutable OIDC subjects for `main`, `dev`, and `production`. Restrict the
-   GitHub `dev` and `production` environments to the `main` branch:
+   GitHub `dev` and `production` environments to the `main` branch and disable
+   administrator bypass:
 
    ```sh
    aws cloudformation deploy \
