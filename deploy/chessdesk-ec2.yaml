@@ -82,7 +82,7 @@ Resources:
       ImageId: !Ref LatestAmazonLinuxAmi
       InstanceType: t3.micro
       CreditSpecification:
-        CpuCredits: standard
+        CPUCredits: standard
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
