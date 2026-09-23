@@ -64,6 +64,7 @@ async function readDashboard(page: Page): Promise<DashboardSnapshot> {
 async function openAllTimeDashboard(page: Page): Promise<DashboardSnapshot> {
   await page.goto('/dashboard/');
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Updated/ })).toBeVisible();
   const dashboardResponse = waitForApiResponse(page, 'GET', '/api/v1/dashboard');
   await page.getByRole('button', { name: 'All Time', exact: true }).click();
   const response = await dashboardResponse;
