@@ -25,7 +25,10 @@ Open Grafana at <http://localhost:3000> (default local login `admin` /
 `chessdesk-local`). Prometheus is at <http://localhost:9090>. Both interfaces
 and the host OTLP ports are bound to localhost. Set `GRAFANA_ADMIN_USER` and
 `GRAFANA_ADMIN_PASSWORD` in the shell or Compose `.env` file to override the
-local Grafana login.
+local Grafana login. The provisioned **ChessDesk Application Metrics** dashboard
+is in the **ChessDesk** folder. Its Environment and Deployed version filters
+apply to every application panel; the version choices follow the selected
+environment.
 
 Prometheus retains 15 days of metrics with a 2 GB size limit, Loki retains logs
 for 7 days, and Tempo retains traces for 24 hours. Each backend uses its own
@@ -45,9 +48,11 @@ dimensions, and SQLAlchemy connection-usage metrics.
 Traces are available in Grafana's Tempo data source; Prometheus receives the
 application metrics and Collector health metrics. Metrics use the same resource
 attributes as traces, so `service_name`, `deployment_environment_name`, and
-`service_version` are available as Prometheus labels. The app does not currently
-export OTLP logs, and container stdout is not collected automatically; Loki is
-ready for logs sent over OTLP.
+`service_version` are available as Prometheus labels. The Grafana dashboard
+shows request rate, p95 latency, 5xx response percentage, active requests,
+request and response payload sizes, and SQLAlchemy pool connections by state.
+The app does not currently export OTLP logs, and container stdout is not
+collected automatically; Loki is ready for logs sent over OTLP.
 
 ## Fit for ChessDesk
 
