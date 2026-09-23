@@ -1,7 +1,7 @@
 'use client';
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Eye, EyeOff, Copy, CheckCircle2, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { authService } from '@/lib/services/authService';
 import { useRouter } from 'next/navigation';
 
@@ -15,19 +15,13 @@ interface LoginFormProps {
   onForgotPassword: () => void;
 }
 
-const DEMO_CREDENTIALS = {
-  email: 'thabo@chessops.co.za',
-  password: 'chess2026!',
-};
-
 export default function LoginForm({ onForgotPassword }: LoginFormProps) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
-  const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<LoginFormData>({
+  const { register, handleSubmit, formState: { errors } } = useForm<LoginFormData>({
     defaultValues: { email: '', password: '', remember: false },
   });
 
@@ -42,17 +36,6 @@ export default function LoginForm({ onForgotPassword }: LoginFormProps) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const autofill = () => {
-    setValue('email', DEMO_CREDENTIALS.email);
-    setValue('password', DEMO_CREDENTIALS.password);
-  };
-
-  const copyToClipboard = async (field: 'email' | 'password') => {
-    await navigator.clipboard.writeText(DEMO_CREDENTIALS[field]);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 1500);
   };
 
   return (
@@ -144,40 +127,6 @@ export default function LoginForm({ onForgotPassword }: LoginFormProps) {
         ) : 'Sign In'}
       </button>
 
-      {/* Demo credentials */}
-      <div className="mt-4 rounded-xl p-4 space-y-3" style={{ background: 'var(--background)', border: '1px solid var(--border)' }}>
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--foreground-subtle)', letterSpacing: '0.06em' }}>
-            Demo Account
-          </p>
-          <button
-            type="button"
-            onClick={autofill}
-            className="text-xs px-2.5 py-1 rounded-lg font-medium transition-all duration-150"
-            style={{ background: 'var(--primary-muted)', color: 'var(--primary)' }}
-          >
-            Autofill
-          </button>
-        </div>
-        <div className="space-y-2">
-          {(['email', 'password'] as const).map(field => (
-            <div key={`cred-${field}`} className="flex items-center justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-2xs uppercase tracking-wide mb-0.5" style={{ color: 'var(--foreground-subtle)' }}>{field}</p>
-                <p className="text-xs font-mono truncate" style={{ color: 'var(--foreground-muted)' }}>{DEMO_CREDENTIALS[field]}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => copyToClipboard(field)}
-                className="flex-shrink-0 p-1.5 rounded-lg btn-ghost"
-                aria-label={`Copy ${field}`}
-              >
-                {copiedField === field ? <CheckCircle2 size={13} style={{ color: 'var(--accent)' }} /> : <Copy size={13} />}
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
     </form>
   );
 }
