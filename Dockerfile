@@ -16,6 +16,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.9 /uv /uvx /bin/
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    OTEL_SERVICE_NAME=chessdesk-backend \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 

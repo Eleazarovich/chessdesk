@@ -4,12 +4,14 @@ set -Eeuo pipefail
 image_tag="${1:-}"
 commit="${2:-}"
 region="${3:-}"
+deployment_environment="${4:-}"
 
 if [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$ \
   || ! "$commit" =~ ^[0-9a-f]{40}$ \
   || "${commit:0:7}" != "${image_tag##*-}" \
-  || ! "$region" =~ ^[a-z0-9-]+$ ]]; then
-  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region>" >&2
+  || ! "$region" =~ ^[a-z0-9-]+$ \
+  || ! "$deployment_environment" =~ ^(dev|production)$ ]]; then
+  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region> <dev|production>" >&2
   exit 2
 fi
 
@@ -77,6 +79,7 @@ docker run --detach \
   --env DATABASE_URL=sqlite:////data/chessdesk.db \
   --env CHESSDESK_SEED_DEMO=false \
   --env CHESSDESK_COOKIE_SECURE=true \
+  --env "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=$deployment_environment,service.version=$commit" \
   "$image"
 
 for attempt in {1..60}; do

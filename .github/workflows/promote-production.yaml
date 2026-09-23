@@ -175,12 +175,14 @@ jobs:
           INSTANCE_ID: ${{ steps.targets.outputs.prod_instance }}
           IMAGE_TAG: ${{ steps.dev.outputs.image_tag }}
           COMMIT: ${{ steps.dev.outputs.commit }}
+          DEPLOY_ENVIRONMENT: production
         run: |
           set -euo pipefail
           jq -n \
             --arg instance_id "$INSTANCE_ID" \
             --arg image_tag "$IMAGE_TAG" \
             --arg commit "$COMMIT" \
+            --arg deployment_environment "$DEPLOY_ENVIRONMENT" \
             --arg region "$AWS_REGION" \
             '{
               InstanceIds: [$instance_id],
@@ -188,7 +190,7 @@ jobs:
               Comment: ("ChessDesk promote " + $image_tag),
               TimeoutSeconds: 600,
               Parameters: {
-                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + $commit + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && bash /opt/chessdesk/deploy/deploy-ec2.sh " + $image_tag + " " + $commit + " " + $region)],
+                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + $commit + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && bash /opt/chessdesk/deploy/deploy-ec2.sh " + $image_tag + " " + $commit + " " + $region + " " + $deployment_environment)],
                 executionTimeout: ["3000"]
               }
             }' > "$RUNNER_TEMP/ssm-prod-command.json"

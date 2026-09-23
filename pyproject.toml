@@ -6,6 +6,10 @@ requires-python = ">=3.11"
 dependencies = [
     "email-validator>=2.2.0",
     "fastapi>=0.115.0",
+    "opentelemetry-exporter-otlp>=1.44.0",
+    "opentelemetry-instrumentation-fastapi>=0.65b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.65b0",
+    "opentelemetry-sdk>=1.44.0",
     "psycopg[binary]>=3.3.6",
     "sqlalchemy>=2.0.0",
     "uvicorn[standard]>=0.30.0",

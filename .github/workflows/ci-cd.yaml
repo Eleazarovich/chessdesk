@@ -199,12 +199,14 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.target.outputs.instance_id }}
           IMAGE_TAG: ${{ needs.build-image.outputs.image_tag }}
+          DEPLOY_ENVIRONMENT: dev
         run: |
           set -euo pipefail
           jq -n \
             --arg instance_id "$INSTANCE_ID" \
             --arg commit "$GITHUB_SHA" \
             --arg image_tag "$IMAGE_TAG" \
+            --arg deployment_environment "$DEPLOY_ENVIRONMENT" \
             --arg region "$AWS_REGION" \
             '{
               InstanceIds: [$instance_id],
@@ -212,7 +214,7 @@ jobs:
               Comment: ("ChessDesk deploy " + $image_tag),
               TimeoutSeconds: 600,
               Parameters: {
-                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + $commit + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && bash /opt/chessdesk/deploy/deploy-ec2.sh " + $image_tag + " " + $commit + " " + $region)],
+                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + $commit + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && bash /opt/chessdesk/deploy/deploy-ec2.sh " + $image_tag + " " + $commit + " " + $region + " " + $deployment_environment)],
                 executionTimeout: ["3000"]
               }
             }' > "$RUNNER_TEMP/ssm-command.json"

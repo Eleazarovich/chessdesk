@@ -25,6 +25,20 @@ must already exist before starting the API.
 The API is available at `http://127.0.0.1:8000/api/v1`; interactive docs are at
 `/api/v1/docs`.
 
+The backend creates OpenTelemetry spans for FastAPI requests and SQLAlchemy
+database operations. Resource attributes default to
+`service.name=chessdesk-backend`, `service.version=0.1.0`, and
+`deployment.environment.name=development`. Set `OTEL_SERVICE_NAME` and
+`OTEL_RESOURCE_ATTRIBUTES` to override them. The deployment pipeline sets the
+environment to `dev` or `production` and the version to the full deployed Git
+commit SHA.
+
+To export traces, set `OTEL_EXPORTER_OTLP_ENDPOINT` or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to an OTLP collector endpoint. The protocol
+defaults to gRPC; set `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` to use OTLP
+over HTTP. Without an endpoint, spans are generated but not exported.
+For local inspection, set `OTEL_TRACES_EXPORTER=console`.
+
 Build and run the combined frontend and backend container from the repository
 root:
 
