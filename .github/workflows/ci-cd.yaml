@@ -59,8 +59,12 @@ jobs:
       - run: uv sync --frozen
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: Create the shared OTLP network
+        run: docker network create chessdesk-otel
       - name: Build and start the Compose stack
         run: docker compose up --build --detach --wait --wait-timeout 240
+        env:
+          OTEL_TRACES_EXPORTER: none
       - name: Run API integration tests against Compose
         run: uv run pytest -m integration integration_tests
       - name: Run Playwright end-to-end tests against Compose
@@ -70,7 +74,9 @@ jobs:
         run: docker compose logs --no-color
       - name: Stop Compose and remove its test database
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: |
+          docker compose down --volumes --remove-orphans
+          docker network rm chessdesk-otel
 
   build-image:
     name: Build and push image

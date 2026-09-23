@@ -31,7 +31,9 @@ database operations. Resource attributes default to
 `deployment.environment.name=development`. Set `OTEL_SERVICE_NAME` and
 `OTEL_RESOURCE_ATTRIBUTES` to override them. The deployment pipeline sets the
 environment to `dev` or `production` and the version to the full deployed Git
-commit SHA.
+commit SHA. When started through the root Compose file, the backend exports to
+the local collector at `otel-collector:4317` by default. To disable export, set
+`OTEL_TRACES_EXPORTER=none`.
 
 To export traces, set `OTEL_EXPORTER_OTLP_ENDPOINT` or
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to an OTLP collector endpoint. The protocol
@@ -39,12 +41,29 @@ defaults to gRPC; set `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` to use OTLP
 over HTTP. Without an endpoint, spans are generated but not exported.
 For local inspection, set `OTEL_TRACES_EXPORTER=console`.
 
-Build and run the combined frontend and backend container from the repository
-root:
+Start the separate observability project first so it creates the shared OTLP
+network, then start the application stack:
 
 ```bash
+make observability-up
+docker compose up --build -d
+```
+
+Open Grafana at `http://localhost:3000` (default local login `admin` /
+`chessdesk-local`). The Grafana, Prometheus, and OTLP host ports are bound to
+localhost. The app and observability services communicate over a private Docker
+network. The observability project can be stopped with `make observability-down`;
+its named data volumes are retained.
+
+To build and run only the combined frontend and backend container from the
+repository root, create the shared network first:
+
+```bash
+docker network inspect chessdesk-otel >/dev/null 2>&1 || docker network create chessdesk-otel
 docker build -t chessdesk .
 docker run --rm -p 8000:8000 \
+  --network chessdesk-otel \
+  -e OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
   -v chessdesk-data:/data \
   -e DATABASE_URL=sqlite:////data/chessdesk.db \
   chessdesk
