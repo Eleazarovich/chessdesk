@@ -85,15 +85,29 @@ jobs:
       contents: read
       id-token: write
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      AWS_STACK_NAME: ${{ vars.AWS_STACK_NAME }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'af-south-1' }}
+      AWS_STACK_NAME: ${{ vars.AWS_STACK_NAME || 'chessdesk-ec2' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate AWS deployment configuration
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$AWS_ROLE_ARN" ]]; then
+            echo "::error title=AWS deployment is not bootstrapped::Create the deploy/github-actions-role.yaml stack and set its RoleArn output as the AWS_ROLE_ARN repository secret. See deploy/README.md."
+            exit 1
+          fi
+          if [[ -z "$AWS_REGION" || -z "$AWS_STACK_NAME" ]]; then
+            echo "::error title=AWS deployment target is missing::Set the AWS_REGION and AWS_STACK_NAME repository variables, or use the workflow defaults."
+            exit 1
+          fi
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
       - name: Read deployment target from CloudFormation
         id: target
         shell: bash
