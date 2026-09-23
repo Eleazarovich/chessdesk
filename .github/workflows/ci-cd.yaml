@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Environment to deploy (manual runs on main only)
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
 
 permissions:
   contents: read
@@ -73,20 +82,21 @@ jobs:
         run: docker compose down --volumes --remove-orphans
 
   deploy:
-    name: Deploy to AWS
+    name: Deploy to ${{ inputs.target_environment || 'dev' }}
     needs: compose-tests
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
-      group: chessdesk-production
+      group: chessdesk-${{ inputs.target_environment || 'dev' }}
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'af-south-1' }}
-      AWS_STACK_NAME: ${{ vars.AWS_STACK_NAME || 'chessdesk-ec2' }}
+      DEPLOY_ENVIRONMENT: ${{ inputs.target_environment == 'prod' && 'prod' || 'dev' }}
+      AWS_STACK_NAME: ${{ inputs.target_environment == 'prod' && (vars.AWS_PROD_STACK_NAME || 'chessdesk-ec2-prod') || (vars.AWS_DEV_STACK_NAME || vars.AWS_STACK_NAME || 'chessdesk-ec2') }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate AWS deployment configuration
@@ -100,7 +110,7 @@ jobs:
             exit 1
           fi
           if [[ -z "$AWS_REGION" || -z "$AWS_STACK_NAME" ]]; then
-            echo "::error title=AWS deployment target is missing::Set the AWS_REGION and AWS_STACK_NAME repository variables, or use the workflow defaults."
+            echo "::error title=AWS deployment target is missing::Set AWS_REGION and optionally AWS_DEV_STACK_NAME or AWS_PROD_STACK_NAME repository variables, or use the workflow defaults."
             exit 1
           fi
       - name: Configure AWS credentials with GitHub OIDC
@@ -113,6 +123,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          stack_environment="$(aws cloudformation describe-stacks \
+            --stack-name "$AWS_STACK_NAME" \
+            --query "Stacks[0].Parameters[?ParameterKey=='Environment'].ParameterValue | [0]" \
+            --output text)"
+          if [[ "$stack_environment" != "$DEPLOY_ENVIRONMENT" ]]; then
+            echo "Stack $AWS_STACK_NAME has Environment=$stack_environment; refusing a $DEPLOY_ENVIRONMENT deployment." >&2
+            exit 1
+          fi
           instance_id="$(aws cloudformation describe-stacks \
             --stack-name "$AWS_STACK_NAME" \
             --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" \

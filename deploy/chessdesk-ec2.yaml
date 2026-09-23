@@ -1,19 +1,23 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Single-instance ChessDesk pilot — uses CloudFront for HTTPS without requiring
-  a purchased domain and restricts origin ingress to CloudFront edges.
+  Independently deployable ChessDesk environment — uses CloudFront for HTTPS
+  without requiring a purchased domain and restricts origin ingress to CloudFront edges.
 
 Metadata:
   AWSToolsMetrics:
     AWSAgentToolkit: aws-cloudformation@3
   com.aws.cloudformation.Context:
-    arch: CloudFront HTTPS -> one EC2 Docker host -> FastAPI + static frontend; SQLite on separate EBS
+    arch: CloudFront HTTPS -> one EC2 Docker host -> FastAPI + static frontend; each environment has its own SQLite EBS volume
     must:
       - EC2 origin ingress stays limited to the AWS-managed CloudFront origin-facing prefix list
       - CloudFront viewer protocol redirects HTTP to HTTPS and disables caching for all app paths
       - CHESSDESK_SEED_DEMO=false and CHESSDESK_COOKIE_SECURE=true remain set in the hosted container
-      - SQLite data lives on the encrypted EBS data volume, which is retained after stack deletion
+      - Each environment owns a separate encrypted EBS data volume, retained after stack deletion
       - GitHub Actions deploys through Systems Manager; do not add SSH ingress or key pairs
+    ref:
+      - at: deploy/README.md
+        has: Dev and production stack names, setup commands, and deployment selection
+        scope: same repository
 
 Parameters:
   VpcId:
@@ -42,6 +46,13 @@ Parameters:
     Default: main
     AllowedPattern: '^[A-Za-z0-9._/-]{1,128}$'
     Description: Git branch, tag, or commit to build from the public ChessDesk repository.
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Environment name recorded in resource tags for this independent stack.
 
 Resources:
   ChessDeskOriginSecurityGroup:
@@ -65,12 +76,14 @@ Resources:
       Tags:
         - Key: Project
           Value: ChessDesk
+        - Key: Environment
+          Value: !Ref Environment
 
   ChessDeskInstance:
     Type: AWS::EC2::Instance
     Metadata:
       com.aws.cloudformation.Context:
-        why: Runs the single-container pilot on a burstable micro instance; swap provides room for Docker image builds.
+        why: Runs this environment's app host on a burstable micro instance; swap provides room for Docker image builds.
         must:
           - Use IMDSv2 and the ChessDesk SSM instance profile; do not assign an SSH key
           - Build only the public ChessDesk source at GitRef; never put credentials in UserData
@@ -162,6 +175,8 @@ Resources:
           Value: !Sub '${AWS::StackName}-app'
         - Key: Project
           Value: ChessDesk
+        - Key: Environment
+          Value: !Ref Environment
 
   ChessDeskInstanceRole:
     Type: AWS::IAM::Role
@@ -178,6 +193,8 @@ Resources:
       Tags:
         - Key: Project
           Value: ChessDesk
+        - Key: Environment
+          Value: !Ref Environment
 
   ChessDeskInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -209,6 +226,8 @@ Resources:
           Value: !Sub '${AWS::StackName}-data'
         - Key: Project
           Value: ChessDesk
+        - Key: Environment
+          Value: !Ref Environment
 
   ChessDeskDataVolumeAttachment:
     Type: AWS::EC2::VolumeAttachment
@@ -226,7 +245,7 @@ Resources:
     Type: AWS::CloudFront::Distribution
     Metadata:
       com.aws.cloudformation.Context:
-        why: Provides the public HTTPS URL and forwards dynamic app requests to the EC2 origin without a purchased domain or cached session data.
+        why: Provides this environment's public HTTPS URL and forwards dynamic app requests to the EC2 origin without a purchased domain or cached session data.
         must:
           - Keep HTTPS required for viewers
           - Keep caching disabled and forward cookies, query strings, and required headers
@@ -236,7 +255,7 @@ Resources:
           DistributionConfig: review-required
     Properties:
       DistributionConfig:
-        Comment: !Sub '${AWS::StackName} ChessDesk pilot'
+        Comment: !Sub '${AWS::StackName} ChessDesk ${Environment}'
         DefaultRootObject: index.html
         Enabled: true
         HttpVersion: http2and3
@@ -275,14 +294,16 @@ Resources:
       Tags:
         - Key: Project
           Value: ChessDesk
+        - Key: Environment
+          Value: !Ref Environment
 
 Outputs:
   SiteUrl:
-    Description: HTTPS URL for the ChessDesk pilot (CloudFront distribution).
+    Description: HTTPS URL for this ChessDesk environment (CloudFront distribution).
     Value: !Sub 'https://${ChessDeskDistribution.DomainName}'
   InstanceId:
-    Description: EC2 instance hosting the app; use the EC2 console output to inspect first-boot logs.
+    Description: EC2 instance hosting this environment; use the EC2 console output to inspect first-boot logs.
     Value: !Ref ChessDeskInstance
   DataVolumeId:
-    Description: Encrypted EBS volume retained after stack deletion; it remains billable until separately deleted.
+    Description: This environment's encrypted EBS volume retained after stack deletion; it remains billable until separately deleted.
     Value: !Ref ChessDeskDataVolume

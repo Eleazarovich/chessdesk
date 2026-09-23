@@ -10,7 +10,7 @@ Metadata:
       - Trust audience is sts.amazonaws.com and subject is this repository's main branch.
     ref:
       - at: deploy/README.md
-        has: Deployment bootstrap, trust scope, and required outputs
+        has: Environment stack names, deployment selection, trust scope, and required outputs
         scope: same repository
 
 Parameters:
@@ -21,19 +21,24 @@ Parameters:
     Type: String
     Default: repo:Eleazarovich@96009758/chessdesk@1358729767:ref:refs/heads/main
     Description: Exact immutable GitHub OIDC subject allowed to assume this role.
-  ChessDeskStackName:
+  ChessDeskDevStackName:
     Type: String
-    Description: Name of the CloudFormation stack that hosts ChessDesk.
+    Default: chessdesk-ec2
+    Description: CloudFormation stack name for the dev environment.
+  ChessDeskProdStackName:
+    Type: String
+    Default: chessdesk-ec2-prod
+    Description: CloudFormation stack name for the production environment.
 
 Resources:
   ChessDeskGitHubDeployRole:
     Type: AWS::IAM::Role
     Metadata:
       com.aws.cloudformation.Context:
-        why: gives only ChessDesk main's GitHub workflow temporary AWS credentials; deploys via SSM instead of stored AWS keys.
+        why: gives ChessDesk main's GitHub workflow temporary AWS credentials for the dev and production stacks; deploys via SSM instead of stored AWS keys.
         must:
           - Trust only this repository's main subject with sts.amazonaws.com audience.
-          - Run commands only on EC2 instances tagged Project=ChessDesk.
+          - Run commands only on ChessDesk EC2 instances tagged Project=ChessDesk and Environment=dev or prod.
         mutable: change-with-constraints
     Properties:
       AssumeRolePolicyDocument:
@@ -55,7 +60,9 @@ Resources:
               - Sid: ReadChessDeskStackOutputs
                 Effect: Allow
                 Action: cloudformation:DescribeStacks
-                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskStackName}/*
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskDevStackName}/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskProdStackName}/*
               - Sid: RunCommandsOnChessDeskInstances
                 Effect: Allow
                 Action: ssm:SendCommand
@@ -66,6 +73,9 @@ Resources:
                 Condition:
                   StringEquals:
                     ssm:resourceTag/Project: ChessDesk
+                    ssm:resourceTag/Environment:
+                      - dev
+                      - prod
               - Sid: ReadDeploymentCommandResult
                 Effect: Allow
                 Action: ssm:GetCommandInvocation
