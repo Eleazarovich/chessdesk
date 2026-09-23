@@ -56,9 +56,11 @@ different region or has another name.
        ChessDeskStackName=chessdesk-ec2
    ```
 
-   If GitHub shows an immutable subject claim for this repository, pass that
-   exact value as `GitHubSubject`. The workflow does not use a GitHub environment,
-   so the subject is branch based.
+   GitHub emits an immutable subject for this repository, and the template's
+   default is `repo:Eleazarovich@96009758/chessdesk@1358729767:ref:refs/heads/main`.
+   If the repository is transferred or GitHub shows a different exact subject,
+   pass that value as `GitHubSubject`. The workflow does not use a GitHub
+   environment, so the subject is branch based.
 
 4. Set the GitHub repository secret `AWS_ROLE_ARN` to the role stack's `RoleArn`
    output. With GitHub CLI authenticated, this command writes it directly:

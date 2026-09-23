@@ -1,14 +1,26 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: GitHub Actions OIDC role for deploying ChessDesk through Systems Manager.
 
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    arch: GitHub Actions OIDC -> scoped IAM role -> Systems Manager Run Command
+    must:
+      - Trust audience is sts.amazonaws.com and subject is this repository's main branch.
+    ref:
+      - at: deploy/README.md
+        has: Deployment bootstrap, trust scope, and required outputs
+        scope: same repository
+
 Parameters:
   GitHubOidcProviderArn:
     Type: String
     Description: ARN of the existing token.actions.githubusercontent.com IAM OIDC provider.
   GitHubSubject:
     Type: String
-    Default: repo:Eleazarovich/chessdesk:ref:refs/heads/main
-    Description: Exact GitHub OIDC subject allowed to assume this role.
+    Default: repo:Eleazarovich@96009758/chessdesk@1358729767:ref:refs/heads/main
+    Description: Exact immutable GitHub OIDC subject allowed to assume this role.
   ChessDeskStackName:
     Type: String
     Description: Name of the CloudFormation stack that hosts ChessDesk.
@@ -16,6 +28,13 @@ Parameters:
 Resources:
   ChessDeskGitHubDeployRole:
     Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: gives only ChessDesk main's GitHub workflow temporary AWS credentials; deploys via SSM instead of stored AWS keys.
+        must:
+          - Trust only this repository's main subject with sts.amazonaws.com audience.
+          - Run commands only on EC2 instances tagged Project=ChessDesk.
+        mutable: change-with-constraints
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
