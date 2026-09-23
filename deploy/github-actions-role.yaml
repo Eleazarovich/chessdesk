@@ -10,7 +10,7 @@ Metadata:
       - Trust audience is sts.amazonaws.com and subject is this repository's main branch.
     ref:
       - at: deploy/README.md
-        has: Environment stack names, deployment selection, trust scope, and required outputs
+        has: Environment stack names, ECR setup, deployment selection, trust scope, and required outputs
         scope: same repository
 
 Parameters:
@@ -35,10 +35,11 @@ Resources:
     Type: AWS::IAM::Role
     Metadata:
       com.aws.cloudformation.Context:
-        why: gives ChessDesk main's GitHub workflow temporary AWS credentials for the dev and production stacks; deploys via SSM instead of stored AWS keys.
+        why: lets the main workflow publish releases and invoke dev/prod deployments with short-lived OIDC credentials instead of stored AWS keys
         must:
           - Trust only this repository's main subject with sts.amazonaws.com audience.
           - Run commands only on ChessDesk EC2 instances tagged Project=ChessDesk and Environment=dev or prod.
+          - Limit image publishing to the shared ChessDesk repository.
         mutable: change-with-constraints
     Properties:
       AssumeRolePolicyDocument:
@@ -99,6 +100,13 @@ Resources:
 
   ChessDeskImageRepository:
     Type: AWS::ECR::Repository
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: provides one private image source for dev and production promotion; its physical name is shared by builder URIs and instance pull policy
+        must:
+          - Keep the physical repository name aligned with the CI image URI and EC2 pull policy
+          - Keep tags immutable so a deployed dev tag continues to identify the promoted artifact
+        mutable: change-with-constraints
     Properties:
       RepositoryName: chessdesk
       ImageTagMutability: IMMUTABLE

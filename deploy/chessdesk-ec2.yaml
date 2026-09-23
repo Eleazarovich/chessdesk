@@ -164,6 +164,13 @@ Resources:
 
   ChessDeskInstanceRole:
     Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: gives the host its SSM control channel and short-lived ECR credentials to pull private releases without stored AWS keys
+        must:
+          - Keep ECR image access read-only and scoped to the shared ChessDesk repository
+          - Retain SSM managed-instance permissions for GitHub Run Command deployments
+        mutable: change-with-constraints
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
