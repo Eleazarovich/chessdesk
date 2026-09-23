@@ -45,8 +45,9 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
 
 2. Deploy `github-actions-role.yaml` in the same region. It creates the shared
    ECR repository and a role that can push images and send SSM commands only to
-   ChessDesk instances tagged for either environment. The default OIDC subject
-   allows the `main` branch of `Eleazarovich/chessdesk`:
+   ChessDesk instances tagged for either environment. The role trusts the
+   immutable OIDC subjects for `main`, `dev`, and `production`. Restrict the
+   GitHub `dev` and `production` environments to the `main` branch:
 
    ```sh
    aws cloudformation deploy \
@@ -56,6 +57,9 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
      --capabilities CAPABILITY_IAM \
      --parameter-overrides \
        GitHubOidcProviderArn=arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com \
+       GitHubSubject=repo:Eleazarovich@96009758/chessdesk@1358729767:ref:refs/heads/main \
+       GitHubDevEnvironmentSubject=repo:Eleazarovich@96009758/chessdesk@1358729767:environment:dev \
+       GitHubProductionEnvironmentSubject=repo:Eleazarovich@96009758/chessdesk@1358729767:environment:production \
        ChessDeskDevStackName=chessdesk-ec2 \
        ChessDeskProdStackName=chessdesk-ec2-prod
    ```
@@ -63,8 +67,10 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    For an existing role stack, rerun this command after updating the image
    pipeline. Updating repository code alone does not update the AWS role policy.
 
-   If the repository is transferred or GitHub shows a different exact OIDC
-   subject, pass that value as `GitHubSubject`. The workflow is branch based.
+   If GitHub reports different OIDC subjects for the branch or environments,
+   pass them using the matching parameters. The workflow job environments must
+   remain restricted to `main` so environment subjects cannot be used by other
+   branches.
 
 3. Apply the template to the existing dev stack and create the independent
    production stack. The dev update adds its `Environment=dev` tag; it does not

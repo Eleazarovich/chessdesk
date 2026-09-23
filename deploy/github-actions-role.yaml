@@ -7,7 +7,7 @@ Metadata:
   com.aws.cloudformation.Context:
     arch: GitHub Actions OIDC -> scoped IAM role -> ECR image publishing and Systems Manager Run Command
     must:
-      - Trust audience is sts.amazonaws.com and subject is this repository's main branch.
+      - Trust audience is sts.amazonaws.com and subjects are limited to this repository's main branch and dev/production environments.
     ref:
       - at: deploy/README.md
         has: Environment stack names, ECR setup, deployment selection, trust scope, and required outputs
@@ -20,7 +20,15 @@ Parameters:
   GitHubSubject:
     Type: String
     Default: repo:Eleazarovich@96009758/chessdesk@1358729767:ref:refs/heads/main
-    Description: Exact immutable GitHub OIDC subject allowed to assume this role.
+    Description: Exact immutable GitHub OIDC subject for the main branch image-build job.
+  GitHubDevEnvironmentSubject:
+    Type: String
+    Default: repo:Eleazarovich@96009758/chessdesk@1358729767:environment:dev
+    Description: Exact immutable GitHub OIDC subject for the dev deployment environment.
+  GitHubProductionEnvironmentSubject:
+    Type: String
+    Default: repo:Eleazarovich@96009758/chessdesk@1358729767:environment:production
+    Description: Exact immutable GitHub OIDC subject for the production deployment environment.
   ChessDeskDevStackName:
     Type: String
     Default: chessdesk-ec2
@@ -37,7 +45,7 @@ Resources:
       com.aws.cloudformation.Context:
         why: lets the main workflow publish releases and invoke dev/prod deployments with short-lived OIDC credentials instead of stored AWS keys
         must:
-          - Trust only this repository's main subject with sts.amazonaws.com audience.
+          - Trust only this repository's main-branch and dev/production environment subjects with sts.amazonaws.com audience.
           - Run commands only on ChessDesk EC2 instances tagged Project=ChessDesk and Environment=dev or prod.
           - Limit image publishing to the shared ChessDesk repository.
         mutable: change-with-constraints
@@ -52,7 +60,10 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Ref GitHubSubject
+                token.actions.githubusercontent.com:sub:
+                  - !Ref GitHubSubject
+                  - !Ref GitHubDevEnvironmentSubject
+                  - !Ref GitHubProductionEnvironmentSubject
       Policies:
         - PolicyName: ChessDeskDeploy
           PolicyDocument:
