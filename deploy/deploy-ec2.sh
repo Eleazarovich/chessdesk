@@ -9,6 +9,18 @@ if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
   exit 2
 fi
 
+# CloudFormation can finish before EC2 user data has built the first image and
+# started the bootstrap container. Wait before checking out source or building
+# again so the first pipeline deploy cannot race that setup.
+if command -v cloud-init >/dev/null 2>&1; then
+  cloud-init status --wait
+fi
+if ! docker container inspect chessdesk >/dev/null 2>&1; then
+  echo "The initial ChessDesk container is missing after EC2 bootstrap completed." >&2
+  tail -n 50 /var/log/chessdesk-bootstrap.log >&2 2>/dev/null || true
+  exit 1
+fi
+
 git -C "$repository" fetch --depth 1 origin "$commit"
 git -C "$repository" checkout --detach --force FETCH_HEAD
 if [[ "$(git -C "$repository" rev-parse HEAD)" != "$commit" ]]; then
