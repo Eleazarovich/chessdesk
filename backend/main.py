@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,6 +20,17 @@ telemetry = configure_telemetry()
 from .routers import auth, clients, dashboard, expenses, invoices, profile, sessions
 from .store import get_store
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Flush telemetry providers cleanly when the API shuts down."""
+
+    try:
+        yield
+    finally:
+        telemetry.shutdown()
+
+
 app = FastAPI(
     title="ChessDesk Backend API",
     version="0.1.0",
@@ -28,6 +41,7 @@ app = FastAPI(
     openapi_url="/api/v1/openapi.json",
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
+    lifespan=lifespan,
 )
 
 
@@ -110,9 +124,6 @@ def custom_openapi() -> dict:
 
 
 app.openapi = custom_openapi
-app.add_event_handler("shutdown", telemetry.shutdown)
-
-
 frontend_static_dir = Path(__file__).resolve().parent / "static"
 if frontend_static_dir.is_dir():
     app.mount("/", StaticFiles(directory=frontend_static_dir, html=True), name="frontend")
