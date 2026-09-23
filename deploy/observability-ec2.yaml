@@ -182,9 +182,7 @@ Resources:
           UserData: review-required
     Properties:
       ImageId: !Ref LatestAmazonLinuxAmi
-      InstanceType: t3.medium
-      CreditSpecification:
-        CPUCredits: standard
+      InstanceType: c7i-flex.large
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
@@ -211,7 +209,7 @@ Resources:
             set -Eeuo pipefail
             exec > >(tee /var/log/chessdesk-observability-bootstrap.log | logger -t chessdesk-observability-bootstrap -s 2>/dev/console) 2>&1
 
-            dnf install -y awscli-2 curl docker git xfsprogs
+            dnf install -y awscli-2 docker git xfsprogs
             mkdir -p /usr/local/lib/docker/cli-plugins
             curl -fsSL https://github.com/docker/compose/releases/download/v5.5.0/docker-compose-linux-x86_64 \
               --output /usr/local/lib/docker/cli-plugins/docker-compose
@@ -241,6 +239,9 @@ Resources:
             grep -q "UUID=$DATA_UUID" /etc/fstab || echo "UUID=$DATA_UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
             mount /data
             mkdir -p /data/observability/{prometheus,loki,tempo,grafana}
+            chown -R 65534:65534 /data/observability/prometheus
+            chown -R 10001:10001 /data/observability/loki /data/observability/tempo
+            chown -R 472:0 /data/observability/grafana
 
             git clone --depth 1 --branch '${GitRef}' -- https://github.com/Eleazarovich/chessdesk.git /opt/chessdesk
             ADMIN_PASSWORD="$(aws secretsmanager get-secret-value \
