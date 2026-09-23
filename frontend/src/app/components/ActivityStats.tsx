@@ -57,6 +57,7 @@ export default function ActivityStats({ activity }: ActivityStatsProps) {
         {stats.map(stat => (
           <div
             key={stat.id}
+            id={stat.id}
             className="flex items-center justify-between px-3 py-2.5 rounded-lg"
             style={{ background: 'var(--background-secondary)', border: '1px solid var(--border-subtle)' }}
           >
