@@ -1,0 +1,264 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Single-instance ChessDesk pilot — uses CloudFront for HTTPS without requiring
+  a purchased domain and restricts origin ingress to CloudFront edges.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    arch: CloudFront HTTPS -> one EC2 Docker host -> FastAPI + static frontend; SQLite on separate EBS
+    must:
+      - EC2 origin ingress stays limited to the AWS-managed CloudFront origin-facing prefix list
+      - CloudFront viewer protocol redirects HTTP to HTTPS and disables caching for all app paths
+      - CHESSDESK_SEED_DEMO=false and CHESSDESK_COOKIE_SECURE=true remain set in the hosted container
+      - SQLite data lives on the encrypted EBS data volume, which is retained after stack deletion
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-05a42e6fd13c2c767
+    Description: Default VPC in af-south-1.
+  PublicSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0ce95b083850fedab
+    Description: Default public subnet in af-south-1a.
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: af-south-1a
+    Description: Must match the selected public subnet.
+  CloudFrontOriginPrefixListId:
+    Type: String
+    Default: pl-c0aa4fa9
+    AllowedPattern: '^pl-[0-9a-f]+$'
+    Description: AWS-managed CloudFront origin-facing IPv4 prefix list in af-south-1.
+  LatestAmazonLinuxAmi:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0a4da01d1a3d42967
+    Description: Amazon Linux 2023 x86_64 AMI found in af-south-1 on 2026-09-23.
+  GitRef:
+    Type: String
+    Default: main
+    AllowedPattern: '^[A-Za-z0-9._/-]{1,128}$'
+    Description: Git branch, tag, or commit to build from the public ChessDesk repository.
+
+Resources:
+  ChessDeskOriginSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Restricts the app origin to CloudFront origin-facing servers; avoids public origin and SSH ingress.
+        must:
+          - Ingress is only TCP 8000 from the regional CloudFront origin-facing managed prefix list
+          - Do not add SSH or public CIDR ingress to this group
+        mutable: review-required
+    Properties:
+      GroupDescription: Allow the ChessDesk app origin only from CloudFront.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: CloudFront origin-facing connections to the app.
+          IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
+      Tags:
+        - Key: Project
+          Value: ChessDesk
+
+  ChessDeskInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Runs the single-container pilot on a burstable micro instance; swap provides room for the one-time frontend image build.
+        must:
+          - Use IMDSv2 and do not assign an instance profile or SSH key for this pilot
+          - Build only the public ChessDesk source at GitRef; never put credentials in UserData
+          - Keep the app's SQLite database on ChessDeskDataVolume, not the instance root disk
+        mutable: change-with-constraints
+        mutability:
+          UserData: review-required
+          NetworkInterfaces: review-required
+    Properties:
+      ImageId: !Ref LatestAmazonLinuxAmi
+      InstanceType: t3.micro
+      CreditSpecification:
+        CpuCredits: standard
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref ChessDeskOriginSecurityGroup
+          SubnetId: !Ref PublicSubnetId
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: 16
+            VolumeType: gp3
+      UserData:
+        Fn::Base64:
+          Fn::Sub: |
+            #!/bin/bash
+            set -Eeuo pipefail
+            exec > >(tee /var/log/chessdesk-bootstrap.log | logger -t chessdesk-bootstrap -s 2>/dev/console) 2>&1
+
+            # Allow the static frontend build to finish on a micro instance.
+            fallocate -l 2G /swapfile || true
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            grep -q '^/swapfile ' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+
+            dnf install -y docker git xfsprogs
+            systemctl enable --now docker
+
+            # The EBS data volume is attached after the instance starts on Nitro.
+            DATA_VOLUME_ID='${ChessDeskDataVolume}'
+            DATA_VOLUME_SERIAL="$(printf '%s' "$DATA_VOLUME_ID" | tr -d '-')"
+            DATA_DEVICE=''
+            for attempt in $(seq 1 60); do
+              DATA_DEVICE="$(lsblk -dnp -o NAME,SERIAL | awk -v expected="$DATA_VOLUME_SERIAL" '$2 == expected { print $1; exit }')"
+              if [ -n "$DATA_DEVICE" ] && [ -b "$DATA_DEVICE" ]; then
+                break
+              fi
+              sleep 2
+            done
+            if [ -z "$DATA_DEVICE" ] || [ ! -b "$DATA_DEVICE" ]; then
+              echo "EBS data volume $DATA_VOLUME_ID did not appear" >&2
+              exit 1
+            fi
+            if ! blkid "$DATA_DEVICE" >/dev/null 2>&1; then
+              mkfs.xfs "$DATA_DEVICE"
+            fi
+            DATA_UUID="$(blkid -s UUID -o value "$DATA_DEVICE")"
+            mkdir -p /data
+            grep -q "UUID=$DATA_UUID" /etc/fstab || echo "UUID=$DATA_UUID /data xfs defaults,nofail 0 2" >> /etc/fstab
+            mount /data
+            mkdir -p /data/chessdesk
+            chown 10001:10001 /data/chessdesk
+
+            git clone --depth 1 --branch '${GitRef}' -- https://github.com/Eleazarovich/chessdesk.git /opt/chessdesk
+            docker build --pull --tag chessdesk:pilot /opt/chessdesk
+            docker run --detach \
+              --name chessdesk \
+              --restart unless-stopped \
+              --publish 8000:8000 \
+              --volume /data/chessdesk:/data \
+              --env DATABASE_URL=sqlite:////data/chessdesk.db \
+              --env CHESSDESK_SEED_DEMO=false \
+              --env CHESSDESK_COOKIE_SECURE=true \
+              chessdesk:pilot
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-app'
+        - Key: Project
+          Value: ChessDesk
+
+  ChessDeskDataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Stores the SQLite database separately from the replaceable EC2 root disk, preserving coach data if the stack is removed.
+        must:
+          - Keep this volume encrypted and attached in the same Availability Zone as the instance
+          - Stack deletion leaves this data volume retained and billable until it is separately deleted
+        mutable: change-with-constraints
+        mutability:
+          AvailabilityZone: must-never-change
+          Encrypted: must-never-change
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      Encrypted: true
+      Size: 10
+      VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-data'
+        - Key: Project
+          Value: ChessDesk
+
+  ChessDeskDataVolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Attaches persistent SQLite storage to the app instance after both resources exist.
+        must:
+          - Keep the attachment and instance in the same Availability Zone
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref ChessDeskInstance
+      VolumeId: !Ref ChessDeskDataVolume
+
+  ChessDeskDistribution:
+    Type: AWS::CloudFront::Distribution
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Provides the public HTTPS URL and forwards dynamic app requests to the EC2 origin without a purchased domain or cached session data.
+        must:
+          - Keep HTTPS required for viewers
+          - Keep caching disabled and forward cookies, query strings, and required headers
+          - Origin protocol is HTTP on the AWS network; viewer traffic is HTTPS to CloudFront
+        mutable: review-required
+        mutability:
+          DistributionConfig: review-required
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${AWS::StackName} ChessDesk pilot'
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: false
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: ChessDeskOrigin
+            DomainName: !GetAtt ChessDeskInstance.PublicDnsName
+            CustomOriginConfig:
+              HTTPPort: 8000
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          CachedMethods:
+            - GET
+            - HEAD
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+          TargetOriginId: ChessDeskOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+      Tags:
+        - Key: Project
+          Value: ChessDesk
+
+Outputs:
+  SiteUrl:
+    Description: HTTPS URL for the ChessDesk pilot (CloudFront distribution).
+    Value: !Sub 'https://${ChessDeskDistribution.DomainName}'
+  InstanceId:
+    Description: EC2 instance hosting the app; use the EC2 console output to inspect first-boot logs.
+    Value: !Ref ChessDeskInstance
+  DataVolumeId:
+    Description: Encrypted EBS volume retained after stack deletion; it remains billable until separately deleted.
+    Value: !Ref ChessDeskDataVolume
