@@ -13,6 +13,7 @@ Metadata:
       - CloudFront viewer protocol redirects HTTP to HTTPS and disables caching for all app paths
       - CHESSDESK_SEED_DEMO=false and CHESSDESK_COOKIE_SECURE=true remain set in the hosted container
       - SQLite data lives on the encrypted EBS data volume, which is retained after stack deletion
+      - GitHub Actions deploys through Systems Manager; do not add SSH ingress or key pairs
 
 Parameters:
   VpcId:
@@ -69,9 +70,9 @@ Resources:
     Type: AWS::EC2::Instance
     Metadata:
       com.aws.cloudformation.Context:
-        why: Runs the single-container pilot on a burstable micro instance; swap provides room for the one-time frontend image build.
+        why: Runs the single-container pilot on a burstable micro instance; swap provides room for Docker image builds.
         must:
-          - Use IMDSv2 and do not assign an instance profile or SSH key for this pilot
+          - Use IMDSv2 and the ChessDesk SSM instance profile; do not assign an SSH key
           - Build only the public ChessDesk source at GitRef; never put credentials in UserData
           - Keep the app's SQLite database on ChessDeskDataVolume, not the instance root disk
         mutable: change-with-constraints
@@ -87,6 +88,7 @@ Resources:
         HttpEndpoint: enabled
         HttpTokens: required
         HttpPutResponseHopLimit: 1
+      IamInstanceProfile: !Ref ChessDeskInstanceProfile
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
           DeleteOnTermination: true
@@ -160,6 +162,28 @@ Resources:
           Value: !Sub '${AWS::StackName}-app'
         - Key: Project
           Value: ChessDesk
+
+  ChessDeskInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Project
+          Value: ChessDesk
+
+  ChessDeskInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ChessDeskInstanceRole
 
   ChessDeskDataVolume:
     Type: AWS::EC2::Volume

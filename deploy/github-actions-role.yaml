@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: GitHub Actions OIDC role for deploying ChessDesk through Systems Manager.
+
+Parameters:
+  GitHubOidcProviderArn:
+    Type: String
+    Description: ARN of the existing token.actions.githubusercontent.com IAM OIDC provider.
+  GitHubSubject:
+    Type: String
+    Default: repo:Eleazarovich/chessdesk:ref:refs/heads/main
+    Description: Exact GitHub OIDC subject allowed to assume this role.
+  ChessDeskStackName:
+    Type: String
+    Description: Name of the CloudFormation stack that hosts ChessDesk.
+
+Resources:
+  ChessDeskGitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Ref GitHubSubject
+      Policies:
+        - PolicyName: ChessDeskDeploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadChessDeskStackOutputs
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskStackName}/*
+              - Sid: RunCommandsOnChessDeskInstances
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals:
+                    ssm:resourceTag/Project: ChessDesk
+              - Sid: ReadDeploymentCommandResult
+                Effect: Allow
+                Action: ssm:GetCommandInvocation
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: ChessDesk
+
+Outputs:
+  RoleArn:
+    Description: Set as the GitHub Actions AWS_ROLE_ARN secret.
+    Value: !GetAtt ChessDeskGitHubDeployRole.Arn

@@ -1,0 +1,192 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --frozen
+      - run: uv run pytest backend/tests
+
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+
+  compose-tests:
+    name: Compose integration and E2E tests
+    needs: [backend-tests, frontend-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: uv sync --frozen
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build and start the Compose stack
+        run: docker compose up --build --detach --wait --wait-timeout 240
+      - name: Run API integration tests against Compose
+        run: uv run pytest -m integration integration_tests
+      - name: Run Playwright end-to-end tests against Compose
+        run: npm run e2e
+      - name: Show service logs after a failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop Compose and remove its test database
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  deploy:
+    name: Deploy to AWS
+    needs: compose-tests
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: chessdesk-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_STACK_NAME: ${{ vars.AWS_STACK_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Read deployment target from CloudFormation
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          instance_id="$(aws cloudformation describe-stacks \
+            --stack-name "$AWS_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" \
+            --output text)"
+          site_url="$(aws cloudformation describe-stacks \
+            --stack-name "$AWS_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='SiteUrl'].OutputValue | [0]" \
+            --output text)"
+          if [[ -z "$instance_id" || "$instance_id" == "None" || -z "$site_url" || "$site_url" == "None" ]]; then
+            echo "Stack $AWS_STACK_NAME must export InstanceId and SiteUrl outputs." >&2
+            exit 1
+          fi
+          echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
+          echo "site_url=$site_url" >> "$GITHUB_OUTPUT"
+      - name: Deploy the commit through Systems Manager
+        shell: bash
+        env:
+          INSTANCE_ID: ${{ steps.target.outputs.instance_id }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg instance_id "$INSTANCE_ID" \
+            --arg commit "$GITHUB_SHA" \
+            '{
+              InstanceIds: [$instance_id],
+              DocumentName: "AWS-RunShellScript",
+              Comment: ("ChessDesk deploy " + $commit),
+              TimeoutSeconds: 600,
+              Parameters: {
+                commands: [("bash /opt/chessdesk/deploy/deploy-ec2.sh " + $commit)],
+                executionTimeout: ["3000"]
+              }
+            }' > "$RUNNER_TEMP/ssm-command.json"
+
+          command_id="$(aws ssm send-command \
+            --cli-input-json "file://$RUNNER_TEMP/ssm-command.json" \
+            --query 'Command.CommandId' \
+            --output text)"
+          deadline=$((SECONDS + 3300))
+          command_status="Pending"
+
+          while (( SECONDS < deadline )); do
+            command_status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query Status \
+              --output text 2>/dev/null || true)"
+            case "$command_status" in
+              Success)
+                echo "Systems Manager deployment completed."
+                break
+                ;;
+              Failed|TimedOut|Cancelled|Cancelling)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "$INSTANCE_ID" \
+                  --query '{Status:Status,StatusDetails:StatusDetails,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}' \
+                  --output json || true
+                exit 1
+                ;;
+              *)
+                sleep 10
+                ;;
+            esac
+          done
+
+          if [[ "$command_status" != "Success" ]]; then
+            echo "Timed out waiting for Systems Manager command $command_id." >&2
+            aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query '{Status:Status,StatusDetails:StatusDetails,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}' \
+              --output json || true
+            exit 1
+          fi
+      - name: Verify the deployed health endpoint
+        shell: bash
+        env:
+          SITE_URL: ${{ steps.target.outputs.site_url }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..36}; do
+            if response="$(curl --fail --silent --max-time 15 "$SITE_URL/health")"; then
+              echo "${SITE_URL}/health: $response"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Health check failed for ${SITE_URL}/health" >&2
+          curl --fail --show-error --max-time 15 "$SITE_URL/health" || true
+          exit 1

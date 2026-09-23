@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .routers import auth, clients, dashboard, expenses, invoices, profile, sessions
+from .store import get_store
 
 app = FastAPI(
     title="ChessDesk Backend API",
@@ -24,6 +25,14 @@ app = FastAPI(
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
 )
+
+
+@app.get("/health", include_in_schema=False)
+async def health() -> dict[str, str]:
+    """Check that the app and its configured database can serve requests."""
+
+    get_store()
+    return {"status": "ok"}
 
 app.add_middleware(
     CORSMiddleware,
