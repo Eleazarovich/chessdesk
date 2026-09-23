@@ -117,8 +117,13 @@ jobs:
           timestamp="$(date -u +%Y%m%d-%H%M%S)"
           image_tag="$timestamp-${GITHUB_SHA:0:7}"
 
-          aws ecr get-login-password --region "$AWS_REGION" \
+          if ! ecr_password="$(aws ecr get-login-password --region "$AWS_REGION")"; then
+            echo "::error title=ECR authorization denied::Update the chessdesk-github-actions CloudFormation stack with deploy/github-actions-role.yaml to grant the GitHub role ecr:GetAuthorizationToken."
+            exit 1
+          fi
+          printf '%s' "$ecr_password" \
             | docker login --username AWS --password-stdin "$registry"
+          unset ecr_password
           docker build --pull \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --tag "$image_repository:$image_tag" .

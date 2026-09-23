@@ -60,6 +60,9 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
        ChessDeskProdStackName=chessdesk-ec2-prod
    ```
 
+   For an existing role stack, rerun this command after updating the image
+   pipeline. Updating repository code alone does not update the AWS role policy.
+
    If the repository is transferred or GitHub shows a different exact OIDC
    subject, pass that value as `GitHubSubject`. The workflow is branch based.
 
