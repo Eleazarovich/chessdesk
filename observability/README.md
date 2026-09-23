@@ -31,13 +31,13 @@ apply to every application panel; the version choices follow the selected
 environment.
 
 Prometheus retains 15 days of metrics with a 2 GB size limit, Loki retains logs
-for 7 days, and Tempo retains traces for 24 hours. Each backend uses its own
-named Docker volume. Stop the observability project with `make
-observability-down`; volumes and the shared network are retained. Remove stored
-observability data only when intended with:
+for 7 days, and Tempo retains traces for 24 hours. Local data is stored under
+`observability/data/` and ignored by git. Stop the observability project with
+`make observability-down`; data remains on disk. Remove it only when intended
+with:
 
 ```bash
-docker compose -f observability/compose.yaml down --volumes
+rm -rf observability/data
 ```
 
 ## Current telemetry coverage
@@ -63,16 +63,23 @@ or a log collector is configured; until then, it mostly adds a component to
 operate. Add log collection before treating this as a complete application
 observability setup.
 
-This five-service stack is suited to local development and learning. ChessDesk's
-hosted topology is a single small EC2 instance, so running these storage and UI
-services on that same machine would compete with the app for memory and disk
-while adding patching and backup work. For AWS production, evaluate CloudWatch
-Application Signals and CloudWatch Logs, which support EC2-hosted applications;
-otherwise, run the self-managed backends on a separate host or choose a managed
-Grafana service.
+The AWS deployment runs this stack on a dedicated EC2 host with encrypted
+persistent storage. It is a single-node setup: it does not provide high
+availability, cross-AZ replication, or automated EBS backups.
 
-This is a local development and evaluation stack. The single-process Tempo and
-filesystem storage configurations are not highly available. Do not expose these
-unauthenticated endpoints publicly or use this setup as the production backend
-without adding authentication, durable object storage, backups, and resource
-limits.
+## Hosted AWS access
+
+The CloudFormation stack in `deploy/observability-ec2.yaml` creates a separate
+host, private `otel.chessdesk.internal` DNS record, and restricted OTLP
+ingress. Dev and production app hosts are the only security-group sources
+allowed to send OTLP gRPC traffic. Grafana and Prometheus bind to host loopback;
+there is no public ingress to the dashboard, query APIs, or collector.
+
+Human access uses an IAM policy and an SSM session document restricted to
+Grafana port 3000. An AWS administrator attaches the stack's
+`GrafanaAccessPolicyArn` output to approved IAM roles or groups. Operators with
+that policy can retrieve the generated administrator password from the
+`GrafanaAdminPasswordSecretArn` output and open the dashboard through a local
+port-forward. The policy is deliberately not attached to an identity by the
+stack because the authorized user or role must be selected by the account
+owner.

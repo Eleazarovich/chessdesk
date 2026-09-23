@@ -11,8 +11,8 @@ services:
     volumes:
       - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
-      - "127.0.0.1:4317:4317"
-      - "127.0.0.1:4318:4318"
+      - "${OTEL_COLLECTOR_BIND_ADDRESS:-127.0.0.1}:4317:4317"
+      - "${OTEL_COLLECTOR_HTTP_BIND_ADDRESS:-127.0.0.1}:4318:4318"
     networks:
       - otlp
 
@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
-      - prometheus_data:/prometheus
+      - "${OBSERVABILITY_DATA_DIR:-./data}/prometheus:/prometheus"
     ports:
       - "127.0.0.1:9090:9090"
     networks:
@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./loki.yaml:/etc/loki/config.yaml:ro
-      - loki_data:/loki
+      - "${OBSERVABILITY_DATA_DIR:-./data}/loki:/loki"
     networks:
       - otlp
 
@@ -49,7 +49,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./tempo.yaml:/etc/tempo.yaml:ro
-      - tempo_data:/var/tempo
+      - "${OBSERVABILITY_DATA_DIR:-./data}/tempo:/var/tempo"
     networks:
       - otlp
 
@@ -64,10 +64,12 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-chessdesk-local}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_COOKIE_SECURE: ${GF_SECURITY_COOKIE_SECURE:-false}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
+      - "${OBSERVABILITY_DATA_DIR:-./data}/grafana:/var/lib/grafana"
     ports:
       - "127.0.0.1:3000:3000"
     networks:
@@ -77,9 +79,3 @@ networks:
   otlp:
     external: true
     name: chessdesk-otel
-
-volumes:
-  prometheus_data:
-  loki_data:
-  tempo_data:
-  grafana_data:

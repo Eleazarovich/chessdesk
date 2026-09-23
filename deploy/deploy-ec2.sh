@@ -79,6 +79,8 @@ docker run --detach \
   --env DATABASE_URL=sqlite:////data/chessdesk.db \
   --env CHESSDESK_SEED_DEMO=false \
   --env CHESSDESK_COOKIE_SECURE=true \
+  --env OTEL_EXPORTER_OTLP_ENDPOINT=http://otel.chessdesk.internal:4317 \
+  --env OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
   --env "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=$deployment_environment,service.version=$commit" \
   "$image"
 

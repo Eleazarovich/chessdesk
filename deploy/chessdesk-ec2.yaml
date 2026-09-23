@@ -314,3 +314,6 @@ Outputs:
   DataVolumeId:
     Description: This environment's encrypted EBS volume retained after stack deletion; it remains billable until separately deleted.
     Value: !Ref ChessDeskDataVolume
+  OriginSecurityGroupId:
+    Description: Security group allowing CloudFront to reach the application instance; used as the telemetry collector's private ingress source.
+    Value: !Ref ChessDeskOriginSecurityGroup

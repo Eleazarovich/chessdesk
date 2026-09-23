@@ -81,7 +81,9 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
 
 3. Apply the template to the existing dev stack and create the independent
    production stack. The dev update adds its `Environment=dev` tag; it does not
-   replace the stack's existing instance or data volume.
+   replace the stack's existing instance or data volume. The template also
+   publishes each environment's app security group ID for the observability
+   stack.
 
    ```sh
    aws cloudformation deploy \
@@ -105,7 +107,64 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    waits for its first image deployment; CloudFormation no longer builds or
    starts an application image on EC2.
 
-4. Set the GitHub repository secret `AWS_ROLE_ARN` to the role stack's
+4. Deploy the observability stack separately. It uses the app stacks' VPC,
+   subnet, Availability Zone, and security-group outputs. No public inbound
+   rules are created; dev and production can send OTLP gRPC to the private DNS
+   name `otel.chessdesk.internal`, while Grafana and Prometheus are available
+   only on the host's loopback interface.
+
+   ```sh
+   vpc_id="$(aws cloudformation describe-stacks --stack-name chessdesk-ec2 --region af-south-1 --query "Stacks[0].Parameters[?ParameterKey=='VpcId'].ParameterValue | [0]" --output text)"
+   subnet_id="$(aws cloudformation describe-stacks --stack-name chessdesk-ec2 --region af-south-1 --query "Stacks[0].Parameters[?ParameterKey=='PublicSubnetId'].ParameterValue | [0]" --output text)"
+   availability_zone="$(aws cloudformation describe-stacks --stack-name chessdesk-ec2 --region af-south-1 --query "Stacks[0].Parameters[?ParameterKey=='AvailabilityZone'].ParameterValue | [0]" --output text)"
+   dev_app_security_group="$(aws cloudformation describe-stacks --stack-name chessdesk-ec2 --region af-south-1 --query "Stacks[0].Outputs[?OutputKey=='OriginSecurityGroupId'].OutputValue | [0]" --output text)"
+   prod_app_security_group="$(aws cloudformation describe-stacks --stack-name chessdesk-ec2-prod --region af-south-1 --query "Stacks[0].Outputs[?OutputKey=='OriginSecurityGroupId'].OutputValue | [0]" --output text)"
+
+   aws cloudformation deploy \
+     --template-file deploy/observability-ec2.yaml \
+     --stack-name chessdesk-observability \
+     --region af-south-1 \
+     --capabilities CAPABILITY_IAM \
+     --parameter-overrides \
+       VpcId="$vpc_id" \
+       PublicSubnetId="$subnet_id" \
+       AvailabilityZone="$availability_zone" \
+       DevAppSecurityGroupId="$dev_app_security_group" \
+       ProdAppSecurityGroupId="$prod_app_security_group" \
+       GitRef=main
+   ```
+
+   The instance has a public address for outbound package and image downloads,
+   but its security group has no public ingress. OTLP gRPC is allowed only from
+   the two app security groups. The stack generates the Grafana admin password
+   in Secrets Manager and exports only its secret ARN.
+
+   Attach the `GrafanaAccessPolicyArn` output only to approved IAM roles or
+   groups. This policy grants an SSM tunnel to Grafana port 3000 and permission
+   to read its password; it does not grant shell access or Run Command. For an
+   approved IAM role, for example:
+
+   ```sh
+   grafana_access_policy="$(aws cloudformation describe-stacks --stack-name chessdesk-observability --region af-south-1 --query "Stacks[0].Outputs[?OutputKey=='GrafanaAccessPolicyArn'].OutputValue | [0]" --output text)"
+   aws iam attach-role-policy --role-name APPROVED_ROLE_NAME --policy-arn "$grafana_access_policy"
+   ```
+
+   An operator with that policy can retrieve the password using the
+   `GrafanaAdminPasswordSecretArn` stack output, then start the tunnel:
+
+   ```sh
+   grafana_instance="$(aws cloudformation describe-stacks --stack-name chessdesk-observability --region af-south-1 --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" --output text)"
+   grafana_document="$(aws cloudformation describe-stacks --stack-name chessdesk-observability --region af-south-1 --query "Stacks[0].Outputs[?OutputKey=='GrafanaPortForwardingDocument'].OutputValue | [0]" --output text)"
+   grafana_secret="$(aws cloudformation describe-stacks --stack-name chessdesk-observability --region af-south-1 --query "Stacks[0].Outputs[?OutputKey=='GrafanaAdminPasswordSecretArn'].OutputValue | [0]" --output text)"
+   aws secretsmanager get-secret-value --secret-id "$grafana_secret" --region af-south-1 --query SecretString --output text
+   aws ssm start-session --target "$grafana_instance" --document-name "$grafana_document" --parameters '{"localPortNumber":["3000"]}' --region af-south-1
+   ```
+
+   While the SSM session is running, open <http://127.0.0.1:3000> and sign in
+   as `admin` with the retrieved password. Session Manager access is controlled
+   by IAM and recorded by CloudTrail.
+
+5. Set the GitHub repository secret `AWS_ROLE_ARN` to the role stack's
    `RoleArn` output. With GitHub CLI authenticated, this command writes it:
 
    ```sh
