@@ -1,0 +1,30 @@
+groups:
+  - name: chessdesk-session-creation
+    rules:
+      - alert: RepeatedSessionCreationFailures
+        expr: |
+          sum by (service_name, deployment_environment_name, service_version) (
+            increase(http_server_request_duration_seconds_count{
+              service_name="chessdesk-backend",
+              http_route="/api/v1/sessions",
+              http_request_method="POST",
+              http_response_status_code=~"5.."
+            }[5m])
+          ) >= 3
+        for: 2m
+        labels:
+          severity: warning
+          service: "{{ $labels.service_name }}"
+          environment: "{{ $labels.deployment_environment_name }}"
+          deployed_version: "{{ $labels.service_version }}"
+          owner: chessdesk-backend-maintainers
+        annotations:
+          summary: Repeated session creation failures in {{ $labels.deployment_environment_name }}
+          description: >-
+            At least 3 session creation requests returned a server error in the
+            last 5 minutes, and the threshold has remained active for 2 minutes.
+            Check backend exceptions and the database write path. Client errors
+            are excluded because validation and authentication failures do not
+            indicate a service outage.
+          dashboard_url: >-
+            http://localhost:3000/d/chessdesk-app/chessdesk-application-metrics?var-environment={{ $labels.deployment_environment_name }}&var-version={{ $labels.service_version }}&viewPanel=7

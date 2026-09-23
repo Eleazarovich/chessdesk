@@ -27,6 +27,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./alerts.yaml:/etc/prometheus/alerts.yaml:ro
       - "${OBSERVABILITY_DATA_DIR:-./data}/prometheus:/prometheus"
     ports:
       - "127.0.0.1:9090:9090"

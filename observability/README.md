@@ -30,6 +30,16 @@ is in the **ChessDesk** folder. Its Environment and Deployed version filters
 apply to every application panel; the version choices follow the selected
 environment.
 
+Prometheus also provisions the `RepeatedSessionCreationFailures` alert. It
+fires when at least 3 `POST /api/v1/sessions` requests return 5xx responses in
+5 minutes and the condition remains active for 2 minutes. The alert includes
+the service, environment, deployed version, owner, and a dashboard URL that
+opens the session-creation failure panel with the affected environment and
+version selected. It excludes 4xx responses such as invalid input or expired
+authentication. View its current state at <http://localhost:9090/alerts>.
+For the hosted stack, use the documented SSM port-forward to Grafana; the alert
+dashboard URL uses that same local port-forward.
+
 Prometheus retains 15 days of metrics with a 2 GB size limit, Loki retains logs
 for 7 days, and Tempo retains traces for 24 hours. Local data is stored under
 `observability/data/` and ignored by git. Stop the observability project with
