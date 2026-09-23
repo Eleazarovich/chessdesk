@@ -65,6 +65,7 @@ jobs:
         run: docker compose up --build --detach --wait --wait-timeout 240
         env:
           OTEL_TRACES_EXPORTER: none
+          OTEL_METRICS_EXPORTER: none
       - name: Run API integration tests against Compose
         run: uv run pytest -m integration integration_tests
       - name: Run Playwright end-to-end tests against Compose

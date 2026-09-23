@@ -26,8 +26,9 @@ container's health check and restores the previous container if the new one
 fails. The workflow also checks the public production health endpoint. No SSH
 key or inbound SSH rule is used.
 
-The backend exports OpenTelemetry request and SQLAlchemy spans when an OTLP
-endpoint is configured in the container. Every span includes the
+The backend exports OpenTelemetry request and SQLAlchemy spans, HTTP request and
+SQLAlchemy connection metrics when an OTLP endpoint is configured in the
+container. Every telemetry signal includes the
 `chessdesk-backend` service name, the `dev` or `production` deployment
 environment, and the full deployed Git commit SHA as `service.version`.
 

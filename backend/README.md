@@ -26,20 +26,28 @@ The API is available at `http://127.0.0.1:8000/api/v1`; interactive docs are at
 `/api/v1/docs`.
 
 The backend creates OpenTelemetry spans for FastAPI requests and SQLAlchemy
-database operations. Resource attributes default to
+database operations. It also exports FastAPI HTTP request duration, active
+request, and request/response size metrics with route, method, and response
+status dimensions, plus SQLAlchemy connection usage.
+Resource attributes default to
 `service.name=chessdesk-backend`, `service.version=0.1.0`, and
 `deployment.environment.name=development`. Set `OTEL_SERVICE_NAME` and
 `OTEL_RESOURCE_ATTRIBUTES` to override them. The deployment pipeline sets the
 environment to `dev` or `production` and the version to the full deployed Git
-commit SHA. When started through the root Compose file, the backend exports to
-the local collector at `otel-collector:4317` by default. To disable export, set
-`OTEL_TRACES_EXPORTER=none`.
+commit SHA. Metrics and traces use the same resource attributes, including
+`deployment.environment.name` and `service.version`; Prometheus exposes these as
+labels through the Collector. When started through the root Compose file, the
+backend exports to the local collector at `otel-collector:4317` by default. To
+disable either signal, set `OTEL_TRACES_EXPORTER=none` or
+`OTEL_METRICS_EXPORTER=none`.
 
-To export traces, set `OTEL_EXPORTER_OTLP_ENDPOINT` or
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to an OTLP collector endpoint. The protocol
-defaults to gRPC; set `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` to use OTLP
-over HTTP. Without an endpoint, spans are generated but not exported.
-For local inspection, set `OTEL_TRACES_EXPORTER=console`.
+To export telemetry from a standalone backend process, set
+`OTEL_EXPORTER_OTLP_ENDPOINT` or the signal-specific
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` to
+an OTLP collector endpoint. The protocol defaults to gRPC; set
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` to use OTLP over HTTP. Without an
+endpoint, OTLP spans and metrics are not exported. For local inspection, set
+`OTEL_TRACES_EXPORTER=console` or `OTEL_METRICS_EXPORTER=console`.
 
 Start the separate observability project first so it creates the shared OTLP
 network, then start the application stack:

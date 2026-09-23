@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .telemetry import configure_telemetry, instrument_fastapi
 
-tracer_provider = configure_telemetry()
+telemetry = configure_telemetry()
 
 from .routers import auth, clients, dashboard, expenses, invoices, profile, sessions
 from .store import get_store
@@ -110,11 +110,11 @@ def custom_openapi() -> dict:
 
 
 app.openapi = custom_openapi
-app.add_event_handler("shutdown", tracer_provider.shutdown)
+app.add_event_handler("shutdown", telemetry.shutdown)
 
 
 frontend_static_dir = Path(__file__).resolve().parent / "static"
 if frontend_static_dir.is_dir():
     app.mount("/", StaticFiles(directory=frontend_static_dir, html=True), name="frontend")
 
-instrument_fastapi(app, tracer_provider)
+instrument_fastapi(app, telemetry)

@@ -39,21 +39,24 @@ docker compose -f observability/compose.yaml down --volumes
 
 ## Current telemetry coverage
 
-The backend currently emits FastAPI request and SQLAlchemy spans, so traces can
-be explored in Grafana's Tempo data source. The collector has OTLP pipelines for
-traces, metrics, and logs, but the app does not currently emit OTLP metrics or
-logs. Prometheus currently shows its own and Collector health metrics; its
-application metrics target will populate when the backend exports metrics. Loki
-is ready for OTLP logs, but container stdout is not collected automatically.
+The backend emits FastAPI request and SQLAlchemy spans, HTTP request duration,
+active-request and body-size metrics with route, method, and response-status
+dimensions, and SQLAlchemy connection-usage metrics.
+Traces are available in Grafana's Tempo data source; Prometheus receives the
+application metrics and Collector health metrics. Metrics use the same resource
+attributes as traces, so `service_name`, `deployment_environment_name`, and
+`service_version` are available as Prometheus labels. The app does not currently
+export OTLP logs, and container stdout is not collected automatically; Loki is
+ready for logs sent over OTLP.
 
 ## Fit for ChessDesk
 
 The Collector-to-Tempo path is a good fit for the backend's existing
-OpenTelemetry traces, and the Grafana data sources give one place to explore the
-different signals. Prometheus and Loki will become useful after the app emits
-metrics and logs; until then, they mostly add components to operate. Add request
-and database metrics and decide how to ship application logs before treating
-this as a complete application observability setup.
+OpenTelemetry traces, and the HTTP and database metrics give useful service
+health signals. Loki will become useful after the app emits structured OTLP logs
+or a log collector is configured; until then, it mostly adds a component to
+operate. Add log collection before treating this as a complete application
+observability setup.
 
 This five-service stack is suited to local development and learning. ChessDesk's
 hosted topology is a single small EC2 instance, so running these storage and UI
