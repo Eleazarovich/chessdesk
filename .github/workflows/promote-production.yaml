@@ -42,7 +42,7 @@ jobs:
             echo "::error title=AWS deployment is not bootstrapped::Set the AWS_ROLE_ARN repository secret. See deploy/README.md."
             exit 1
           fi
-          if [[ -z "$AWS_REGION" || -z "$AWS_DEV_STACK_NAME" || -z "$AWS_PROD_STACK_NAME" ]]; then
+          if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ || -z "$AWS_DEV_STACK_NAME" || -z "$AWS_PROD_STACK_NAME" ]]; then
             echo "::error title=AWS deployment target is missing::Set AWS_REGION and optionally AWS_DEV_STACK_NAME or AWS_PROD_STACK_NAME repository variables, or use the workflow defaults."
             exit 1
           fi
@@ -89,7 +89,7 @@ jobs:
 
           read_stack "$AWS_DEV_STACK_NAME" dev dev
           read_stack "$AWS_PROD_STACK_NAME" prod prod
-      - name: Read the healthy commit running in dev
+      - name: Read the healthy image running in dev
         id: dev
         shell: bash
         env:
@@ -97,7 +97,21 @@ jobs:
         run: |
           set -euo pipefail
           dev_command=$(cat <<'REMOTE'
-          bash -c 'set -euo pipefail; curl --fail --silent --show-error --max-time 15 http://127.0.0.1:8000/health >/dev/null; image="$(docker inspect --format "{{.Config.Image}}" chessdesk)"; commit="${image#chessdesk:}"; [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "The running dev image is not tagged with a commit SHA: $image" >&2; exit 1; }; printf "%s\n" "$commit"'
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 15 http://127.0.0.1:8000/health >/dev/null
+          image="$(docker inspect --format '{{.Config.Image}}' chessdesk)"
+          image_tag="${image##*:}"
+          if [[ "$image" != */chessdesk:"$image_tag" ]] || [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-([0-9a-f]{7})$ ]]; then
+            echo "The running dev image does not use the expected ECR image tag: $image" >&2
+            exit 1
+          fi
+          short_sha="${BASH_REMATCH[1]}"
+          commit="$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' chessdesk)"
+          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ || "${commit:0:7}" != "$short_sha" ]]; then
+            echo "The running dev image has an invalid source revision label: $commit" >&2
+            exit 1
+          fi
+          printf '%s %s\n' "$image_tag" "$commit"
           REMOTE
           )
           jq -n \
@@ -106,7 +120,7 @@ jobs:
             '{
               InstanceIds: [$instance_id],
               DocumentName: "AWS-RunShellScript",
-              Comment: "ChessDesk read running dev commit",
+              Comment: "ChessDesk read running dev image",
               TimeoutSeconds: 300,
               Parameters: {commands: [$command], executionTimeout: ["240"]}
             }' > "$RUNNER_TEMP/ssm-dev-command.json"
@@ -141,34 +155,39 @@ jobs:
             exit 1
           fi
 
-          commit="$(aws ssm get-command-invocation \
+          running_image="$(aws ssm get-command-invocation \
             --command-id "$command_id" \
             --instance-id "$INSTANCE_ID" \
             --query StandardOutputContent \
-            --output text | tr -d '\r\n')"
-          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Dev returned an invalid running image commit: $commit" >&2
+            --output text | tr -d '\r')"
+          read -r image_tag commit <<< "$running_image"
+          if [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$ || ! "$commit" =~ ^[0-9a-f]{40}$ || "${commit:0:7}" != "${image_tag##*-}" ]]; then
+            echo "Dev returned an invalid running image tag or commit: $running_image" >&2
             exit 1
           fi
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
-          echo "Dev is healthy and running commit $commit."
-      - name: Deploy that commit to production through Systems Manager
+          echo "Dev is healthy and running image $image_tag from commit $commit."
+      - name: Deploy the same image to production through Systems Manager
         shell: bash
         env:
           INSTANCE_ID: ${{ steps.targets.outputs.prod_instance }}
+          IMAGE_TAG: ${{ steps.dev.outputs.image_tag }}
           COMMIT: ${{ steps.dev.outputs.commit }}
         run: |
           set -euo pipefail
           jq -n \
             --arg instance_id "$INSTANCE_ID" \
+            --arg image_tag "$IMAGE_TAG" \
             --arg commit "$COMMIT" \
+            --arg region "$AWS_REGION" \
             '{
               InstanceIds: [$instance_id],
               DocumentName: "AWS-RunShellScript",
-              Comment: ("ChessDesk promote " + $commit),
+              Comment: ("ChessDesk promote " + $image_tag),
               TimeoutSeconds: 600,
               Parameters: {
-                commands: [("bash /opt/chessdesk/deploy/deploy-ec2.sh " + $commit)],
+                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + $commit + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && bash /opt/chessdesk/deploy/deploy-ec2.sh " + $image_tag + " " + $commit + " " + $region)],
                 executionTimeout: ["3000"]
               }
             }' > "$RUNNER_TEMP/ssm-prod-command.json"
@@ -187,7 +206,7 @@ jobs:
               --output text 2>/dev/null || true)"
             case "$command_status" in
               Success)
-                echo "Production deployment completed for $COMMIT."
+                echo "Production deployment completed for $IMAGE_TAG."
                 break
                 ;;
               Failed|TimedOut|Cancelled|Cancelling)
@@ -215,6 +234,7 @@ jobs:
         env:
           SITE_URL: ${{ steps.targets.outputs.prod_site }}
           COMMIT: ${{ steps.dev.outputs.commit }}
+          IMAGE_TAG: ${{ steps.dev.outputs.image_tag }}
         run: |
           set -euo pipefail
           for attempt in {1..36}; do
@@ -224,6 +244,6 @@ jobs:
             fi
             sleep 10
           done
-          echo "Production health check failed for $SITE_URL/health after promoting $COMMIT." >&2
+          echo "Production health check failed for $SITE_URL/health after promoting $IMAGE_TAG." >&2
           curl --fail --show-error --max-time 15 "$SITE_URL/health" || true
           exit 1

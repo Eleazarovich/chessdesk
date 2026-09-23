@@ -45,7 +45,7 @@ Parameters:
     Type: String
     Default: main
     AllowedPattern: '^[A-Za-z0-9._/-]{1,128}$'
-    Description: Git branch, tag, or commit to build from the public ChessDesk repository.
+    Description: Git branch, tag, or commit used to install deployment scripts from the public repository.
   Environment:
     Type: String
     Default: dev
@@ -83,10 +83,11 @@ Resources:
     Type: AWS::EC2::Instance
     Metadata:
       com.aws.cloudformation.Context:
-        why: Runs this environment's app host on a burstable micro instance; swap provides room for Docker image builds.
+        why: Runs the app host on a burstable micro instance and pulls prebuilt images from the shared ECR repository.
         must:
           - Use IMDSv2 and the ChessDesk SSM instance profile; do not assign an SSH key
-          - Build only the public ChessDesk source at GitRef; never put credentials in UserData
+          - Do not build application images on EC2; pull release images from the shared ECR repository
+          - Check out only public source for deployment scripts; never put credentials in UserData
           - Keep the app's SQLite database on ChessDeskDataVolume, not the instance root disk
         mutable: change-with-constraints
         mutability:
@@ -123,14 +124,7 @@ Resources:
             set -Eeuo pipefail
             exec > >(tee /var/log/chessdesk-bootstrap.log | logger -t chessdesk-bootstrap -s 2>/dev/console) 2>&1
 
-            # Allow the static frontend build to finish on a micro instance.
-            fallocate -l 2G /swapfile || true
-            chmod 600 /swapfile
-            mkswap /swapfile
-            swapon /swapfile
-            grep -q '^/swapfile ' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
-
-            dnf install -y docker git xfsprogs
+            dnf install -y docker git xfsprogs awscli-2
             systemctl enable --now docker
 
             # The EBS data volume is attached after the instance starts on Nitro.
@@ -159,16 +153,6 @@ Resources:
             chown 10001:10001 /data/chessdesk
 
             git clone --depth 1 --branch '${GitRef}' -- https://github.com/Eleazarovich/chessdesk.git /opt/chessdesk
-            docker build --pull --tag chessdesk:pilot /opt/chessdesk
-            docker run --detach \
-              --name chessdesk \
-              --restart unless-stopped \
-              --publish 8000:8000 \
-              --volume /data/chessdesk:/data \
-              --env DATABASE_URL=sqlite:////data/chessdesk.db \
-              --env CHESSDESK_SEED_DEMO=false \
-              --env CHESSDESK_COOKIE_SECURE=true \
-              chessdesk:pilot
 
       Tags:
         - Key: Name
@@ -190,6 +174,22 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: PullChessDeskImages
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: GetECRAuthorizationToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Sid: PullChessDeskImages
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/chessdesk
       Tags:
         - Key: Project
           Value: ChessDesk

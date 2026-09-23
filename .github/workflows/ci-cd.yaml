@@ -72,10 +72,63 @@ jobs:
         if: always()
         run: docker compose down --volumes --remove-orphans
 
-  deploy:
-    name: Deploy to dev
+  build-image:
+    name: Build and push image
     needs: compose-tests
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'af-south-1' }}
+    outputs:
+      image_tag: ${{ steps.image.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate AWS image publishing configuration
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$AWS_ROLE_ARN" ]]; then
+            echo "::error title=AWS image publishing is not bootstrapped::Create the deploy/github-actions-role.yaml stack and set its RoleArn output as the AWS_ROLE_ARN repository secret. See deploy/README.md."
+            exit 1
+          fi
+          if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ ]]; then
+            echo "::error title=AWS region is missing::Set AWS_REGION or use the workflow default."
+            exit 1
+          fi
+      - name: Configure AWS credentials with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Build and push timestamped image to ECR
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          registry="$account_id.dkr.ecr.$AWS_REGION.amazonaws.com"
+          image_repository="$registry/chessdesk"
+          timestamp="$(date -u +%Y%m%d-%H%M%S)"
+          image_tag="$timestamp-${GITHUB_SHA:0:7}"
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$registry"
+          docker build --pull \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$image_repository:$image_tag" .
+          docker push "$image_repository:$image_tag"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          echo "Pushed $image_repository:$image_tag"
+
+  deploy-dev:
+    name: Deploy image to dev
+    needs: [build-image]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
@@ -89,7 +142,6 @@ jobs:
       DEPLOY_ENVIRONMENT: dev
       AWS_STACK_NAME: ${{ vars.AWS_DEV_STACK_NAME || vars.AWS_STACK_NAME || 'chessdesk-ec2' }}
     steps:
-      - uses: actions/checkout@v4
       - name: Validate AWS deployment configuration
         env:
           AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
@@ -97,11 +149,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$AWS_ROLE_ARN" ]]; then
-            echo "::error title=AWS deployment is not bootstrapped::Create the deploy/github-actions-role.yaml stack and set its RoleArn output as the AWS_ROLE_ARN repository secret. See deploy/README.md."
+            echo "::error title=AWS deployment is not bootstrapped::Set the AWS_ROLE_ARN repository secret. See deploy/README.md."
             exit 1
           fi
-          if [[ -z "$AWS_REGION" || -z "$AWS_STACK_NAME" ]]; then
-            echo "::error title=AWS deployment target is missing::Set AWS_REGION and optionally AWS_DEV_STACK_NAME or AWS_PROD_STACK_NAME repository variables, or use the workflow defaults."
+          if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ || -z "$AWS_STACK_NAME" ]]; then
+            echo "::error title=AWS deployment target is missing::Set AWS_REGION and optionally AWS_DEV_STACK_NAME repository variables, or use the workflow defaults."
             exit 1
           fi
       - name: Configure AWS credentials with GitHub OIDC
@@ -136,22 +188,25 @@ jobs:
           fi
           echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
           echo "site_url=$site_url" >> "$GITHUB_OUTPUT"
-      - name: Deploy the commit through Systems Manager
+      - name: Deploy the image through Systems Manager
         shell: bash
         env:
           INSTANCE_ID: ${{ steps.target.outputs.instance_id }}
+          IMAGE_TAG: ${{ needs.build-image.outputs.image_tag }}
         run: |
           set -euo pipefail
           jq -n \
             --arg instance_id "$INSTANCE_ID" \
             --arg commit "$GITHUB_SHA" \
+            --arg image_tag "$IMAGE_TAG" \
+            --arg region "$AWS_REGION" \
             '{
               InstanceIds: [$instance_id],
               DocumentName: "AWS-RunShellScript",
-              Comment: ("ChessDesk deploy " + $commit),
+              Comment: ("ChessDesk deploy " + $image_tag),
               TimeoutSeconds: 600,
               Parameters: {
-                commands: [("bash /opt/chessdesk/deploy/deploy-ec2.sh " + $commit)],
+                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + $commit + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && bash /opt/chessdesk/deploy/deploy-ec2.sh " + $image_tag + " " + $commit + " " + $region)],
                 executionTimeout: ["3000"]
               }
             }' > "$RUNNER_TEMP/ssm-command.json"
@@ -171,7 +226,7 @@ jobs:
               --output text 2>/dev/null || true)"
             case "$command_status" in
               Success)
-                echo "Systems Manager deployment completed."
+                echo "Systems Manager deployment completed for $IMAGE_TAG."
                 break
                 ;;
               Failed|TimedOut|Cancelled|Cancelling)

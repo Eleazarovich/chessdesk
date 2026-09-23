@@ -1,11 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: GitHub Actions OIDC role for deploying ChessDesk through Systems Manager.
+Description: Shared ChessDesk ECR repository and GitHub Actions OIDC role for building and deploying releases.
 
 Metadata:
   AWSToolsMetrics:
     AWSAgentToolkit: aws-cloudformation@3
   com.aws.cloudformation.Context:
-    arch: GitHub Actions OIDC -> scoped IAM role -> Systems Manager Run Command
+    arch: GitHub Actions OIDC -> scoped IAM role -> ECR image publishing and Systems Manager Run Command
     must:
       - Trust audience is sts.amazonaws.com and subject is this repository's main branch.
     ref:
@@ -80,6 +80,32 @@ Resources:
                 Effect: Allow
                 Action: ssm:GetCommandInvocation
                 Resource: '*'
+              - Sid: GetECRAuthorizationToken
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Sid: PushChessDeskImages
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: !GetAtt ChessDeskImageRepository.Arn
+      Tags:
+        - Key: Project
+          Value: ChessDesk
+
+  ChessDeskImageRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: chessdesk
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
       Tags:
         - Key: Project
           Value: ChessDesk
@@ -88,3 +114,6 @@ Outputs:
   RoleArn:
     Description: Set as the GitHub Actions AWS_ROLE_ARN secret.
     Value: !GetAtt ChessDeskGitHubDeployRole.Arn
+  ImageRepositoryUri:
+    Description: Shared ECR repository receiving tagged ChessDesk build images.
+    Value: !GetAtt ChessDeskImageRepository.RepositoryUri

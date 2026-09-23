@@ -14,14 +14,17 @@ groups, distributions, and databases are separate.
 Each stack has a distinct CloudFront HTTPS URL. Deleting either stack retains
 that stack's data volume, which remains billable until separately deleted.
 
-GitHub Actions deploys successful `main` pushes to dev. To promote dev to
-production, run the `Promote dev to production` workflow from `main` and select
-`promote` in its confirmation input. It checks the running dev container's
-health, reads its commit SHA from the container image tag, then deploys that
-same commit to production through Systems Manager. The production deploy waits
-for the new container's health check and restores the previous container if
-the new one fails. The workflow also checks the public production health
-endpoint after deployment. No SSH key or inbound SSH rule is used.
+GitHub Actions builds the application image after the checks pass, pushes it to
+the shared ECR repository, then deploys that image to dev. ECR rejects tag
+overwrites. Tags use the UTC
+`YYYYMMDD-HHMMSS-shortsha` format, for example `20260818-163457-83242da`.
+Production promotion is manual: run `Promote dev to production` from `main` and
+select `promote`. It checks the running dev container's health, reads its ECR
+image tag and full source commit, then pulls and deploys that exact image to
+production through Systems Manager. The production deploy waits for the new
+container's health check and restores the previous container if the new one
+fails. The workflow also checks the public production health endpoint. No SSH
+key or inbound SSH rule is used.
 
 ## One-time AWS setup
 
@@ -40,7 +43,27 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
      --client-id-list sts.amazonaws.com
    ```
 
-2. Apply the template to the existing dev stack and create the independent
+2. Deploy `github-actions-role.yaml` in the same region. It creates the shared
+   ECR repository and a role that can push images and send SSM commands only to
+   ChessDesk instances tagged for either environment. The default OIDC subject
+   allows the `main` branch of `Eleazarovich/chessdesk`:
+
+   ```sh
+   aws cloudformation deploy \
+     --template-file deploy/github-actions-role.yaml \
+     --stack-name chessdesk-github-actions \
+     --region af-south-1 \
+     --capabilities CAPABILITY_IAM \
+     --parameter-overrides \
+       GitHubOidcProviderArn=arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com \
+       ChessDeskDevStackName=chessdesk-ec2 \
+       ChessDeskProdStackName=chessdesk-ec2-prod
+   ```
+
+   If the repository is transferred or GitHub shows a different exact OIDC
+   subject, pass that value as `GitHubSubject`. The workflow is branch based.
+
+3. Apply the template to the existing dev stack and create the independent
    production stack. The dev update adds its `Environment=dev` tag; it does not
    replace the stack's existing instance or data volume.
 
@@ -62,28 +85,9 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
 
    The template defaults to the VPC, subnet, Availability Zone, CloudFront
    prefix list, and Amazon Linux AMI in `af-south-1`. Override those parameters
-   together if using another region or network.
-
-3. Deploy or update `github-actions-role.yaml` in the same region. The role is
-   scoped to read outputs from the dev and production stacks, and can send SSM
-   commands only to ChessDesk instances tagged for one of those environments.
-   The default OIDC subject allows the `main` branch of
-   `Eleazarovich/chessdesk`:
-
-   ```sh
-   aws cloudformation deploy \
-     --template-file deploy/github-actions-role.yaml \
-     --stack-name chessdesk-github-actions \
-     --region af-south-1 \
-     --capabilities CAPABILITY_IAM \
-     --parameter-overrides \
-       GitHubOidcProviderArn=arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com \
-       ChessDeskDevStackName=chessdesk-ec2 \
-       ChessDeskProdStackName=chessdesk-ec2-prod
-   ```
-
-   If the repository is transferred or GitHub shows a different exact OIDC
-   subject, pass that value as `GitHubSubject`. The workflow is branch based.
+   together if using another region or network. A newly created environment
+   waits for its first image deployment; CloudFormation no longer builds or
+   starts an application image on EC2.
 
 4. Set the GitHub repository secret `AWS_ROLE_ARN` to the role stack's
    `RoleArn` output. With GitHub CLI authenticated, this command writes it:
@@ -101,7 +105,10 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    setup link if `AWS_ROLE_ARN` is missing.
 
 Pull requests run the backend, frontend, Compose integration, and Playwright
-E2E checks without AWS credentials. A push to `main` deploys dev only after all
-checks pass. Production promotion is a separate manual workflow and is allowed
-only from `main`; it promotes the build running in dev when the workflow runs,
-regardless of the commit used to start the workflow.
+E2E checks without AWS credentials. A push to `main` builds and pushes one
+timestamped image, then deploys it to dev only after all checks pass. Production
+promotion is a separate manual workflow and is allowed only from `main`; it
+promotes the image currently running in dev when the workflow runs, regardless
+of the commit used to start the workflow. After setting up or updating these
+resources, run CI/CD from `main` (push or `workflow_dispatch`) to deploy a new
+timestamped image to dev before using the promotion workflow.
