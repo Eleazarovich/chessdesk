@@ -14,11 +14,14 @@ groups, distributions, and databases are separate.
 Each stack has a distinct CloudFront HTTPS URL. Deleting either stack retains
 that stack's data volume, which remains billable until separately deleted.
 
-GitHub Actions deploys successful `main` pushes to dev. To deploy production,
-run the `CI/CD` workflow from `main` and select `prod` for `target_environment`.
-The deploy script runs through Systems Manager, waits for the new container's
-health check, and restores the previous container if the new one fails. No SSH
-key or inbound SSH rule is used.
+GitHub Actions deploys successful `main` pushes to dev. To promote dev to
+production, run the `Promote dev to production` workflow from `main` and select
+`promote` in its confirmation input. It checks the running dev container's
+health, reads its commit SHA from the container image tag, then deploys that
+same commit to production through Systems Manager. The production deploy waits
+for the new container's health check and restores the previous container if
+the new one fails. The workflow also checks the public production health
+endpoint after deployment. No SSH key or inbound SSH rule is used.
 
 ## One-time AWS setup
 
@@ -99,5 +102,6 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
 
 Pull requests run the backend, frontend, Compose integration, and Playwright
 E2E checks without AWS credentials. A push to `main` deploys dev only after all
-checks pass. A manual production run also waits for all checks and is allowed
-only when run from `main`.
+checks pass. Production promotion is a separate manual workflow and is allowed
+only from `main`; it promotes the build running in dev when the workflow runs,
+regardless of the commit used to start the workflow.

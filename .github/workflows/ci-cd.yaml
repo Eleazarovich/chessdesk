@@ -5,15 +5,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      target_environment:
-        description: Environment to deploy (manual runs on main only)
-        required: true
-        type: choice
-        options:
-          - dev
-          - prod
-        default: dev
 
 permissions:
   contents: read
@@ -82,21 +73,21 @@ jobs:
         run: docker compose down --volumes --remove-orphans
 
   deploy:
-    name: Deploy to ${{ inputs.target_environment || 'dev' }}
+    name: Deploy to dev
     needs: compose-tests
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
-      group: chessdesk-${{ inputs.target_environment || 'dev' }}
+      group: chessdesk-dev
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'af-south-1' }}
-      DEPLOY_ENVIRONMENT: ${{ inputs.target_environment == 'prod' && 'prod' || 'dev' }}
-      AWS_STACK_NAME: ${{ inputs.target_environment == 'prod' && (vars.AWS_PROD_STACK_NAME || 'chessdesk-ec2-prod') || (vars.AWS_DEV_STACK_NAME || vars.AWS_STACK_NAME || 'chessdesk-ec2') }}
+      DEPLOY_ENVIRONMENT: dev
+      AWS_STACK_NAME: ${{ vars.AWS_DEV_STACK_NAME || vars.AWS_STACK_NAME || 'chessdesk-ec2' }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate AWS deployment configuration

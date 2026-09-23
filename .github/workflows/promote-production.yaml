@@ -1,0 +1,229 @@
+name: Promote dev to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Promote the commit currently running in dev
+        required: true
+        type: choice
+        options:
+          - cancel
+          - promote
+        default: cancel
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Promote dev build to production
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'promote'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    concurrency:
+      group: chessdesk-prod
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'af-south-1' }}
+      AWS_DEV_STACK_NAME: ${{ vars.AWS_DEV_STACK_NAME || vars.AWS_STACK_NAME || 'chessdesk-ec2' }}
+      AWS_PROD_STACK_NAME: ${{ vars.AWS_PROD_STACK_NAME || 'chessdesk-ec2-prod' }}
+    steps:
+      - name: Validate AWS deployment configuration
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$AWS_ROLE_ARN" ]]; then
+            echo "::error title=AWS deployment is not bootstrapped::Set the AWS_ROLE_ARN repository secret. See deploy/README.md."
+            exit 1
+          fi
+          if [[ -z "$AWS_REGION" || -z "$AWS_DEV_STACK_NAME" || -z "$AWS_PROD_STACK_NAME" ]]; then
+            echo "::error title=AWS deployment target is missing::Set AWS_REGION and optionally AWS_DEV_STACK_NAME or AWS_PROD_STACK_NAME repository variables, or use the workflow defaults."
+            exit 1
+          fi
+      - name: Configure AWS credentials with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Read and validate both environment stacks
+        id: targets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read_stack() {
+            local stack_name="$1"
+            local expected_environment="$2"
+            local output_prefix="$3"
+            local stack_environment instance_id site_url
+
+            stack_environment="$(aws cloudformation describe-stacks \
+              --stack-name "$stack_name" \
+              --query "Stacks[0].Parameters[?ParameterKey=='Environment'].ParameterValue | [0]" \
+              --output text)"
+            if [[ "$stack_environment" != "$expected_environment" ]]; then
+              echo "Stack $stack_name has Environment=$stack_environment; expected $expected_environment." >&2
+              return 1
+            fi
+            instance_id="$(aws cloudformation describe-stacks \
+              --stack-name "$stack_name" \
+              --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" \
+              --output text)"
+            site_url="$(aws cloudformation describe-stacks \
+              --stack-name "$stack_name" \
+              --query "Stacks[0].Outputs[?OutputKey=='SiteUrl'].OutputValue | [0]" \
+              --output text)"
+            if [[ -z "$instance_id" || "$instance_id" == "None" || -z "$site_url" || "$site_url" == "None" ]]; then
+              echo "Stack $stack_name must export InstanceId and SiteUrl outputs." >&2
+              return 1
+            fi
+            echo "${output_prefix}_instance=$instance_id" >> "$GITHUB_OUTPUT"
+            echo "${output_prefix}_site=$site_url" >> "$GITHUB_OUTPUT"
+          }
+
+          read_stack "$AWS_DEV_STACK_NAME" dev dev
+          read_stack "$AWS_PROD_STACK_NAME" prod prod
+      - name: Read the healthy commit running in dev
+        id: dev
+        shell: bash
+        env:
+          INSTANCE_ID: ${{ steps.targets.outputs.dev_instance }}
+        run: |
+          set -euo pipefail
+          dev_command=$(cat <<'REMOTE'
+          bash -c 'set -euo pipefail; curl --fail --silent --show-error --max-time 15 http://127.0.0.1:8000/health >/dev/null; image="$(docker inspect --format "{{.Config.Image}}" chessdesk)"; commit="${image#chessdesk:}"; [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "The running dev image is not tagged with a commit SHA: $image" >&2; exit 1; }; printf "%s\n" "$commit"'
+          REMOTE
+          )
+          jq -n \
+            --arg instance_id "$INSTANCE_ID" \
+            --arg command "$dev_command" \
+            '{
+              InstanceIds: [$instance_id],
+              DocumentName: "AWS-RunShellScript",
+              Comment: "ChessDesk read running dev commit",
+              TimeoutSeconds: 300,
+              Parameters: {commands: [$command], executionTimeout: ["240"]}
+            }' > "$RUNNER_TEMP/ssm-dev-command.json"
+
+          command_id="$(aws ssm send-command \
+            --cli-input-json "file://$RUNNER_TEMP/ssm-dev-command.json" \
+            --query 'Command.CommandId' \
+            --output text)"
+          deadline=$((SECONDS + 300))
+          command_status="Pending"
+          while (( SECONDS < deadline )); do
+            command_status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query Status \
+              --output text 2>/dev/null || true)"
+            case "$command_status" in
+              Success) break ;;
+              Failed|TimedOut|Cancelled|Cancelling)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "$INSTANCE_ID" \
+                  --query '{Status:Status,StatusDetails:StatusDetails,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}' \
+                  --output json || true
+                exit 1
+                ;;
+              *) sleep 5 ;;
+            esac
+          done
+          if [[ "$command_status" != "Success" ]]; then
+            echo "Timed out waiting for the dev Systems Manager command." >&2
+            exit 1
+          fi
+
+          commit="$(aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent \
+            --output text | tr -d '\r\n')"
+          if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Dev returned an invalid running image commit: $commit" >&2
+            exit 1
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Dev is healthy and running commit $commit."
+      - name: Deploy that commit to production through Systems Manager
+        shell: bash
+        env:
+          INSTANCE_ID: ${{ steps.targets.outputs.prod_instance }}
+          COMMIT: ${{ steps.dev.outputs.commit }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg instance_id "$INSTANCE_ID" \
+            --arg commit "$COMMIT" \
+            '{
+              InstanceIds: [$instance_id],
+              DocumentName: "AWS-RunShellScript",
+              Comment: ("ChessDesk promote " + $commit),
+              TimeoutSeconds: 600,
+              Parameters: {
+                commands: [("bash /opt/chessdesk/deploy/deploy-ec2.sh " + $commit)],
+                executionTimeout: ["3000"]
+              }
+            }' > "$RUNNER_TEMP/ssm-prod-command.json"
+
+          command_id="$(aws ssm send-command \
+            --cli-input-json "file://$RUNNER_TEMP/ssm-prod-command.json" \
+            --query 'Command.CommandId' \
+            --output text)"
+          deadline=$((SECONDS + 3300))
+          command_status="Pending"
+          while (( SECONDS < deadline )); do
+            command_status="$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query Status \
+              --output text 2>/dev/null || true)"
+            case "$command_status" in
+              Success)
+                echo "Production deployment completed for $COMMIT."
+                break
+                ;;
+              Failed|TimedOut|Cancelled|Cancelling)
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" \
+                  --instance-id "$INSTANCE_ID" \
+                  --query '{Status:Status,StatusDetails:StatusDetails,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}' \
+                  --output json || true
+                exit 1
+                ;;
+              *) sleep 10 ;;
+            esac
+          done
+          if [[ "$command_status" != "Success" ]]; then
+            echo "Timed out waiting for production deployment command $command_id." >&2
+            aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$INSTANCE_ID" \
+              --query '{Status:Status,StatusDetails:StatusDetails,StandardOutput:StandardOutputContent,StandardError:StandardErrorContent}' \
+              --output json || true
+            exit 1
+          fi
+      - name: Verify production health endpoint
+        shell: bash
+        env:
+          SITE_URL: ${{ steps.targets.outputs.prod_site }}
+          COMMIT: ${{ steps.dev.outputs.commit }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..36}; do
+            if response="$(curl --fail --silent --max-time 15 "$SITE_URL/health")"; then
+              echo "Promoted $COMMIT to $SITE_URL; health check: $response"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Production health check failed for $SITE_URL/health after promoting $COMMIT." >&2
+          curl --fail --show-error --max-time 15 "$SITE_URL/health" || true
+          exit 1
