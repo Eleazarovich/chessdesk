@@ -5,6 +5,7 @@ describe('apiClient', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
+    fetchMock.mockReset();
     apiClient.clearAccessToken();
     localStorage.clear();
     sessionStorage.clear();

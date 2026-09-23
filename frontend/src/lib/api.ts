@@ -27,9 +27,9 @@ export class ApiError extends Error {
   }
 }
 
-const DEFAULT_API_BASE_URL = process.env.NODE_ENV === 'development'
-  ? 'http://localhost:8000/api/v1'
-  : '/api/v1';
+const DEFAULT_API_BASE_URL = process.env.NODE_ENV === 'production'
+  ? '/api/v1'
+  : 'http://localhost:8000/api/v1';
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '');
 const ACCESS_TOKEN_KEY = 'chessdesk_access_token';
 const AUTH_STORAGE_KEY = 'chessops_auth';
