@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -49,6 +50,13 @@ def _value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
 
+def _env_enabled(name: str, *, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Store:
     """Repository that keeps the API models independent from the database vendor."""
 
@@ -57,7 +65,8 @@ class Store:
         self.engine = create_database_engine(self.database_url)
         self.session_factory = create_session_factory(self.engine)
         Base.metadata.create_all(self.engine)
-        self._seed_if_empty()
+        if _env_enabled("CHESSDESK_SEED_DEMO", default=True):
+            self._seed_if_empty()
 
     def close(self) -> None:
         self.engine.dispose()

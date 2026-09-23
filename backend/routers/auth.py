@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from ..auth import (
@@ -18,6 +20,9 @@ from ..models import AuthResponse, AuthUser, LoginRequest, ResetPasswordRequest,
 from ..store import UserRecord, get_store
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+COOKIE_SECURE = os.getenv("CHESSDESK_COOKIE_SECURE", "false").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 
 
 def _auth_response(record: UserRecord, response: Response) -> AuthResponse:
@@ -28,7 +33,7 @@ def _auth_response(record: UserRecord, response: Response) -> AuthResponse:
         max_age=TOKEN_TTL_SECONDS,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=COOKIE_SECURE,
     )
     response.headers["X-Access-Token"] = token
     return AuthResponse(**record.user.model_dump(), access_token=token)
@@ -77,5 +82,10 @@ async def logout(
 ) -> None:
     _ = current_user
     revoke_token(token_from_request(request, None))
-    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(
+        SESSION_COOKIE,
+        httponly=True,
+        samesite="lax",
+        secure=COOKIE_SECURE,
+    )
     return None

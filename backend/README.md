@@ -82,3 +82,9 @@ left intact. For an existing stack or another host port, set
 
 On first startup, the database tables are created and the demo data is seeded
 when the database is empty. Subsequent restarts preserve application data.
+
+For a hosted deployment, set `CHESSDESK_SEED_DEMO=false` to avoid creating the
+demo coach and sample client records in a fresh database. Set
+`CHESSDESK_COOKIE_SECURE=true` when serving the app over HTTPS so browsers only
+send the login cookie over encrypted connections. Both settings default to the
+local-development behavior shown above.
