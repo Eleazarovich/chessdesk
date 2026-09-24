@@ -1,25 +1,30 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Independently deployable ChessDesk environment — uses CloudFront for HTTPS
-  without requiring a purchased domain and restricts origin ingress to CloudFront edges.
+  Independently deployable ChessDesk environment with HTTPS from viewers through
+  CloudFront to EC2. Requires an origin hostname and trusted certificate on the existing host.
 
 Metadata:
   AWSToolsMetrics:
     AWSAgentToolkit: aws-cloudformation@3
   com.aws.cloudformation.Context:
-    arch: CloudFront HTTPS -> one EC2 Docker host -> FastAPI + static frontend; each environment has its own SQLite EBS volume
+    arch: CloudFront HTTPS -> EC2 HTTPS on port 8000 -> FastAPI + static frontend; SQLite and origin certificates use the existing encrypted EBS volume
     must:
       - EC2 origin ingress stays limited to the AWS-managed CloudFront origin-facing prefix list
       - CloudFront viewer protocol redirects HTTP to HTTPS and disables caching for all app paths
       - CHESSDESK_SEED_DEMO=false and CHESSDESK_COOKIE_SECURE=true remain set in the hosted container
       - Each environment owns a separate encrypted EBS data volume, retained after stack deletion
       - GitHub Actions deploys through Systems Manager; do not add SSH ingress or key pairs
+      - OriginProtocolPolicy is https-only and the certificate covers OriginDomainName.
     ref:
       - at: deploy/README.md
         has: Dev and production stack names, setup commands, and deployment selection
         scope: same repository
 
 Parameters:
+  OriginDomainName:
+    Type: String
+    AllowedPattern: '^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
+    Description: Hostname you control, resolving to this EC2 instance, with a publicly trusted certificate installed in /data/chessdesk-tls on EC2.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Default: vpc-05a42e6fd13c2c767
@@ -256,7 +261,7 @@ Resources:
         must:
           - Keep HTTPS required for viewers
           - Keep caching disabled and forward cookies, query strings, and required headers
-          - Origin protocol is HTTP on the AWS network; viewer traffic is HTTPS to CloudFront
+          - Origin traffic uses HTTPS on port 8000 with certificate and hostname verification.
         mutable: review-required
         mutability:
           DistributionConfig: review-required
@@ -270,11 +275,13 @@ Resources:
         PriceClass: PriceClass_200
         Origins:
           - Id: ChessDeskOrigin
-            DomainName: !GetAtt ChessDeskInstance.PublicDnsName
+            DomainName: !Ref OriginDomainName
             CustomOriginConfig:
               HTTPPort: 8000
-              HTTPSPort: 443
-              OriginProtocolPolicy: http-only
+              HTTPSPort: 8000
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
         DefaultCacheBehavior:
           AllowedMethods:
             - DELETE
@@ -305,6 +312,12 @@ Resources:
           Value: !Ref Environment
 
 Outputs:
+  OriginTlsServerName:
+    Description: Certificate hostname passed to the deployment and health check.
+    Value: !Ref OriginDomainName
+  OriginDnsTarget:
+    Description: Point OriginDomainName at this EC2 DNS name before enabling the origin HTTPS connection.
+    Value: !GetAtt ChessDeskInstance.PublicDnsName
   SiteUrl:
     Description: HTTPS URL for this ChessDesk environment (CloudFront distribution).
     Value: !Sub 'https://${ChessDeskDistribution.DomainName}'

@@ -14,6 +14,88 @@ groups, distributions, and databases are separate.
 Each stack has a distinct CloudFront HTTPS URL. Deleting either stack retains
 that stack's data volume, which remains billable until separately deleted.
 
+Current viewer URLs are <https://d1bqcmvdafa6rq.cloudfront.net> (dev) and
+<https://d2mo1cbaii74n0.cloudfront.net> (production). Origin TLS does not require
+changing these public addresses.
+
+## Security upgrade and origin certificates
+
+The security upgrade is a coordinated application, workflow, and IAM change.
+Review it locally before updating AWS. Do not purchase a domain or certificate,
+create billable resources, or start a chargeable deployment without the owner's
+approval. This configuration reuses the existing EC2 instance, EBS volume,
+security group, and CloudFront distribution; it adds no load balancer or secret
+storage service.
+
+CloudFront connects to the origin using HTTPS on port 8000. Each environment
+needs an origin hostname you control, such as `origin-dev.example.com`, with
+a publicly trusted certificate for that hostname. The `cloudfront.net` viewer
+certificate cannot be installed on EC2, and CloudFront does not accept a
+self-signed origin certificate. An ACME certificate can be free when an
+appropriate domain is already available; obtain approval before any purchase.
+
+The owner currently uses only the AWS viewer addresses and has no custom
+domain. Origin TLS rollout therefore remains pending. A domain purchase is
+optional: a free subdomain from [DuckDNS](https://www.duckdns.org/about.jsp)
+and a free [Let's Encrypt certificate](https://letsencrypt.org/getting-started/)
+can provide the origin hostname and certificate while retaining the public
+CloudFront addresses. This requires a DuckDNS account, DNS setup, and
+certificate renewal, and adds a dependency on that third-party DNS service.
+No account, DNS record, or public certificate is created by these code changes.
+
+Before deploying the updated application:
+
+1. Provision each origin hostname's DNS CNAME to its EC2 public DNS name
+   (`OriginDnsTarget` after the template update; available from EC2 beforehand).
+   A DNS A record pointing to the instance's public IPv4 address also works;
+   use that option with DuckDNS and update it if the instance's IP changes.
+   Do not point the origin hostname at the CloudFront viewer URL.
+2. Obtain a certificate, preferably using DNS validation so no public HTTP or
+   SSH ingress needs to be opened. Transfer its PEM full certificate chain and
+   unencrypted private key through an approved secure operator channel to the
+   existing host's encrypted EBS volume as
+   `/data/chessdesk-tls/fullchain.pem` and `/data/chessdesk-tls/privkey.pem`.
+   Keep the directory at mode 0700 and files at 0600, owned by UID/GID 10001.
+   Keep keys out of git, shell command arguments, SSM command bodies, and logs.
+   Ensure the host has the `openssl` command for certificate checks.
+3. Apply the IAM template and configure the three role secrets described
+   below. The old shared role becomes build-only; code changes alone do not
+   revoke its permissions in AWS.
+4. Coordinate a maintenance window to apply `OriginDomainName` to each app
+   stack and deploy the corresponding TLS-enabled image. Switching CloudFront
+   before the matching TLS listener is running produces 502 responses until
+   the image deployment completes. Validate dev before performing this change
+   in production. The updated workflow refuses to deploy without the new
+   origin output, and the deployment script verifies the certificate chain, hostname,
+   key match, and at least 24 hours of validity before stopping the old image.
+5. Check the public `/health` endpoint and sign in again. Legacy application
+   sessions are invalidated by the expiry migration; business data is retained.
+
+Certificate renewal is an operator responsibility: renew and securely replace
+the two PEM files, then redeploy or restart the application to load the renewed
+certificate before it expires. Keep a private backup of the previous valid
+certificate when rotating; a container rollback uses the mounted certificate
+directory. Update the DNS record if an instance replacement changes its public
+DNS name. The origin security group must remain restricted to CloudFront's
+managed prefix list for the trusted viewer IP rate limits to be valid.
+
+CloudFront origin TLS requirements: [AWS documentation](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-https-cloudfront-to-custom-origin.html).
+
+Local deployment checks, using installed tools:
+
+```sh
+cfn-lint deploy/chessdesk-ec2.yaml deploy/github-actions-role.yaml
+cfn-guard validate --rules deploy/security.guard \
+  --data deploy/chessdesk-ec2.yaml --data deploy/github-actions-role.yaml \
+  --output-format json
+bash -n deploy/deploy-ec2.sh
+bash -n deploy/validate-origin-tls.sh
+```
+
+The Guard rules cover origin encryption and the audited role boundaries.
+For a broader compliance review, download the relevant rules from the
+[AWS Guard rules registry](https://github.com/aws-cloudformation/aws-guard-rules-registry).
+
 GitHub Actions builds the application image after the checks pass, pushes it to
 the shared ECR repository, then deploys that image to dev. ECR rejects tag
 overwrites. Tags use the UTC
@@ -50,9 +132,11 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    ```
 
 2. Deploy `github-actions-role.yaml` in the same region. It creates the shared
-   ECR repository and a role that can push images and send SSM commands only to
-   ChessDesk instances tagged for either environment. The role trusts the
-   immutable OIDC subjects for `main`, `dev`, and `production`. Restrict the
+   ECR repository and three roles: the main-branch build role can publish images;
+   the dev environment role can run commands only on dev instances; and the
+   production environment role can inspect the running dev release and deploy
+   production. Only the protected production subject can obtain production
+   command permissions. Restrict the
    GitHub `dev` and `production` environments to the `main` branch and disable
    administrator bypass:
 
@@ -79,11 +163,11 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    remain restricted to `main` so environment subjects cannot be used by other
    branches.
 
-3. Apply the template to the existing dev stack and create the independent
-   production stack. The dev update adds its `Environment=dev` tag; it does not
-   replace the stack's existing instance or data volume. The template also
-   publishes each environment's app security group ID for the observability
-   stack.
+3. After preparing certificates and DNS as described above, apply the app
+   template with a distinct origin hostname for each environment. The TLS
+   changes preserve the instance, data volume, and origin security group.
+   Replace the example origin hostnames below with names covered by your
+   certificates. Follow the maintenance-window sequence for existing stacks.
 
    ```sh
    aws cloudformation deploy \
@@ -91,14 +175,14 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
      --stack-name chessdesk-ec2 \
      --region af-south-1 \
      --capabilities CAPABILITY_IAM \
-     --parameter-overrides Environment=dev
+     --parameter-overrides Environment=dev OriginDomainName=origin-dev.example.com
 
    aws cloudformation deploy \
      --template-file deploy/chessdesk-ec2.yaml \
      --stack-name chessdesk-ec2-prod \
      --region af-south-1 \
      --capabilities CAPABILITY_IAM \
-     --parameter-overrides Environment=prod
+     --parameter-overrides Environment=prod OriginDomainName=origin-prod.example.com
    ```
 
    The template defaults to the VPC, subnet, Availability Zone, CloudFront
@@ -164,20 +248,38 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    as `admin` with the retrieved password. Session Manager access is controlled
    by IAM and recorded by CloudTrail.
 
-5. Set the GitHub repository secret `AWS_ROLE_ARN` to the role stack's
-   `RoleArn` output. With GitHub CLI authenticated, this command writes it:
+5. Set the following GitHub secrets from the role stack outputs:
+
+   | Stack output | GitHub secret | Scope |
+   | --- | --- | --- |
+   | `BuildRoleArn` | `AWS_BUILD_ROLE_ARN` | Repository |
+   | `DevRoleArn` | `AWS_DEV_ROLE_ARN` | `dev` environment |
+   | `ProductionRoleArn` | `AWS_PRODUCTION_ROLE_ARN` | `production` environment |
+
+   With GitHub CLI authenticated, these commands write the secrets:
 
    ```sh
    aws cloudformation describe-stacks \
      --stack-name chessdesk-github-actions \
      --region af-south-1 \
-     --query "Stacks[0].Outputs[?OutputKey=='RoleArn'].OutputValue | [0]" \
-     --output text | gh secret set AWS_ROLE_ARN --repo Eleazarovich/chessdesk
+     --query "Stacks[0].Outputs[?OutputKey=='BuildRoleArn'].OutputValue | [0]" \
+     --output text | gh secret set AWS_BUILD_ROLE_ARN --repo Eleazarovich/chessdesk
+   aws cloudformation describe-stacks \
+     --stack-name chessdesk-github-actions --region af-south-1 \
+     --query "Stacks[0].Outputs[?OutputKey=='DevRoleArn'].OutputValue | [0]" \
+     --output text | gh secret set AWS_DEV_ROLE_ARN --env dev --repo Eleazarovich/chessdesk
+   aws cloudformation describe-stacks \
+     --stack-name chessdesk-github-actions --region af-south-1 \
+     --query "Stacks[0].Outputs[?OutputKey=='ProductionRoleArn'].OutputValue | [0]" \
+     --output text | gh secret set AWS_PRODUCTION_ROLE_ARN --env production --repo Eleazarovich/chessdesk
    ```
 
-   If the role stack already exists, updating it keeps the role ARN stable, so
-   the existing repository secret remains valid. The workflow stops with a
-   setup link if `AWS_ROLE_ARN` is missing.
+   The original role ARN remains the build role. Its legacy `RoleArn` output
+   is retained for compatibility, but workflows never fall back to the old
+   `AWS_ROLE_ARN` secret. Remove that obsolete GitHub secret after migration.
+   Restrict both environments to `main`, disable administrator bypass, and
+   require review for production. Changing workflow YAML alone cannot apply
+   those GitHub environment protection settings.
 
 Pull requests run the backend, frontend, Compose integration, and Playwright
 E2E checks without AWS credentials. A push to `main` builds and pushes one

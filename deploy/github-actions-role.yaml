@@ -1,14 +1,15 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Shared ChessDesk ECR repository and GitHub Actions OIDC role for building and deploying releases.
+Description: Shared ChessDesk ECR repository with separate GitHub OIDC roles for publishing images, deploying dev, and protected production promotion.
 
 Metadata:
   AWSToolsMetrics:
     AWSAgentToolkit: aws-cloudformation@3
   com.aws.cloudformation.Context:
-    arch: GitHub Actions OIDC -> scoped IAM role -> ECR image publishing and Systems Manager Run Command
+    arch: GitHub Actions OIDC -> separate build/dev/production roles -> ECR publishing or environment-scoped SSM commands
     must:
       - Trust audience is sts.amazonaws.com and subjects are limited to this repository's main branch and dev/production environments.
       - Keep the dev and production GitHub environments restricted to main with admin bypass disabled.
+      - Only the production environment subject can obtain permissions to run commands on production instances.
     ref:
       - at: deploy/README.md
         has: Environment stack names, ECR setup, deployment selection, trust scope, and required outputs
@@ -44,11 +45,10 @@ Resources:
     Type: AWS::IAM::Role
     Metadata:
       com.aws.cloudformation.Context:
-        why: lets the main workflow publish releases and invoke dev/prod deployments with short-lived OIDC credentials instead of stored AWS keys
+        why: lets main publish images; retains the existing logical role ID so updating the stack revokes deployment permissions from the previously shared role
         must:
-          - Trust only this repository's main-branch and dev/production environment subjects with sts.amazonaws.com audience.
-          - Keep GitHub dev/production environments restricted to main and disable admin bypass.
-          - Run commands only on ChessDesk EC2 instances tagged Project=ChessDesk and Environment=dev or prod.
+          - Trust only the main-branch subject with sts.amazonaws.com audience.
+          - Never grant Systems Manager commands or production deployment access to the build role.
           - Limit image publishing to the shared ChessDesk repository.
         mutable: change-with-constraints
     Properties:
@@ -62,38 +62,12 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub:
-                  - !Ref GitHubSubject
-                  - !Ref GitHubDevEnvironmentSubject
-                  - !Ref GitHubProductionEnvironmentSubject
+                token.actions.githubusercontent.com:sub: !Ref GitHubSubject
       Policies:
-        - PolicyName: ChessDeskDeploy
+        - PolicyName: PublishChessDeskImages
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: ReadChessDeskStackOutputs
-                Effect: Allow
-                Action: cloudformation:DescribeStacks
-                Resource:
-                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskDevStackName}/*
-                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskProdStackName}/*
-              - Sid: RunCommandsOnChessDeskInstances
-                Effect: Allow
-                Action: ssm:SendCommand
-                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
-              - Effect: Allow
-                Action: ssm:SendCommand
-                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
-                Condition:
-                  StringEquals:
-                    ssm:resourceTag/Project: ChessDesk
-                    ssm:resourceTag/Environment:
-                      - dev
-                      - prod
-              - Sid: ReadDeploymentCommandResult
-                Effect: Allow
-                Action: ssm:GetCommandInvocation
-                Resource: '*'
               - Sid: GetECRAuthorizationToken
                 Effect: Allow
                 Action: ecr:GetAuthorizationToken
@@ -107,6 +81,114 @@ Resources:
                   - ecr:PutImage
                   - ecr:UploadLayerPart
                 Resource: !GetAtt ChessDeskImageRepository.Arn
+      Tags:
+        - Key: Project
+          Value: ChessDesk
+
+  ChessDeskGitHubDevRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: deploys only dev
+        must:
+          - Trust only the matching GitHub environment subject and sts.amazonaws.com audience.
+          - Keep the environment restricted to main with admin bypass disabled.
+          - Scope instance commands to the listed ChessDesk environment tags.
+        mutable: change-with-constraints
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Ref GitHubDevEnvironmentSubject
+      Policies:
+        - PolicyName: DeployChessDeskDev
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadEnvironmentStacks
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskDevStackName}/*
+              - Sid: UseShellDocument
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Sid: CommandEnvironmentInstances
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals:
+                    ssm:resourceTag/Project: ChessDesk
+                    ssm:resourceTag/Environment:
+                      - dev
+              - Sid: ReadCommandResult
+                Effect: Allow
+                Action: ssm:GetCommandInvocation
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: ChessDesk
+
+  ChessDeskGitHubProductionRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: reads the running dev release and promotes it to production, only from the protected production job
+        must:
+          - Trust only the matching GitHub environment subject and sts.amazonaws.com audience.
+          - Keep the environment restricted to main with admin bypass disabled.
+          - Scope instance commands to the listed ChessDesk environment tags.
+        mutable: change-with-constraints
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Ref GitHubProductionEnvironmentSubject
+      Policies:
+        - PolicyName: DeployChessDeskProduction
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadEnvironmentStacks
+                Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskDevStackName}/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ChessDeskProdStackName}/*
+              - Sid: UseShellDocument
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunShellScript
+              - Sid: CommandEnvironmentInstances
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource: !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*
+                Condition:
+                  StringEquals:
+                    ssm:resourceTag/Project: ChessDesk
+                    ssm:resourceTag/Environment:
+                      - dev
+                      - prod
+              - Sid: ReadCommandResult
+                Effect: Allow
+                Action: ssm:GetCommandInvocation
+                Resource: '*'
       Tags:
         - Key: Project
           Value: ChessDesk
@@ -133,8 +215,17 @@ Resources:
 
 Outputs:
   RoleArn:
-    Description: Set as the GitHub Actions AWS_ROLE_ARN secret.
+    Description: Legacy output for the build-only role; it no longer grants deployment access.
     Value: !GetAtt ChessDeskGitHubDeployRole.Arn
+  BuildRoleArn:
+    Description: Set as the GitHub repository secret AWS_BUILD_ROLE_ARN.
+    Value: !GetAtt ChessDeskGitHubDeployRole.Arn
+  DevRoleArn:
+    Description: Set as AWS_DEV_ROLE_ARN in the dev GitHub environment.
+    Value: !GetAtt ChessDeskGitHubDevRole.Arn
+  ProductionRoleArn:
+    Description: Set as AWS_PRODUCTION_ROLE_ARN in the protected production GitHub environment.
+    Value: !GetAtt ChessDeskGitHubProductionRole.Arn
   ImageRepositoryUri:
     Description: Shared ECR repository receiving tagged ChessDesk build images.
     Value: !GetAtt ChessDeskImageRepository.RepositoryUri

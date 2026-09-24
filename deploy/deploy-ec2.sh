@@ -5,13 +5,15 @@ image_tag="${1:-}"
 commit="${2:-}"
 region="${3:-}"
 deployment_environment="${4:-}"
+origin_name="${5:-}"
 
 if [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$ \
   || ! "$commit" =~ ^[0-9a-f]{40}$ \
   || "${commit:0:7}" != "${image_tag##*-}" \
   || ! "$region" =~ ^[a-z0-9-]+$ \
-  || ! "$deployment_environment" =~ ^(dev|production)$ ]]; then
-  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region> <dev|production>" >&2
+  || ! "$deployment_environment" =~ ^(dev|production)$ \
+  || ! "$origin_name" =~ ^[A-Za-z0-9][A-Za-z0-9.-]+[A-Za-z0-9]$ ]]; then
+  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region> <dev|production> <origin hostname>" >&2
   exit 2
 fi
 
@@ -40,6 +42,14 @@ image="$registry/chessdesk:$image_tag"
 aws ecr get-login-password --region "$region" \
   | docker login --username AWS --password-stdin "$registry"
 docker pull "$image"
+
+# Certificates are provisioned on the existing encrypted EBS volume. Validate
+# them before stopping the current container; never fall back to HTTP.
+tls_dir=/data/chessdesk-tls
+bash "$(dirname "$0")/validate-origin-tls.sh" "$tls_dir" "$origin_name"
+chown 10001:10001 "$tls_dir" "$tls_dir/fullchain.pem" "$tls_dir/privkey.pem"
+chmod 0700 "$tls_dir"
+chmod 0600 "$tls_dir/fullchain.pem" "$tls_dir/privkey.pem"
 
 if docker container inspect "$rollback_container" >/dev/null 2>&1; then
   docker rm --force "$rollback_container"
@@ -76,9 +86,15 @@ docker run --detach \
   --restart unless-stopped \
   --publish 8000:8000 \
   --volume /data/chessdesk:/data \
+  --volume "$tls_dir:/tls:ro" \
   --env DATABASE_URL=sqlite:////data/chessdesk.db \
   --env CHESSDESK_SEED_DEMO=false \
   --env CHESSDESK_COOKIE_SECURE=true \
+  --env CHESSDESK_REQUIRE_TLS=true \
+  --env CHESSDESK_TLS_CERTFILE=/tls/fullchain.pem \
+  --env CHESSDESK_TLS_KEYFILE=/tls/privkey.pem \
+  --env "CHESSDESK_TLS_SERVER_NAME=$origin_name" \
+  --env CHESSDESK_TRUST_CLOUDFRONT=true \
   --env OTEL_EXPORTER_OTLP_ENDPOINT=http://otel.chessdesk.internal:4317 \
   --env OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
   --env "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=$deployment_environment,service.version=$commit" \

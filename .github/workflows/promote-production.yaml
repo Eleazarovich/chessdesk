@@ -35,12 +35,12 @@ jobs:
     steps:
       - name: Validate AWS deployment configuration
         env:
-          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_PRODUCTION_ROLE_ARN: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$AWS_ROLE_ARN" ]]; then
-            echo "::error title=AWS deployment is not bootstrapped::Set the AWS_ROLE_ARN repository secret. See deploy/README.md."
+          if [[ -z "$AWS_PRODUCTION_ROLE_ARN" ]]; then
+            echo "::error title=AWS deployment is not bootstrapped::Set the AWS_PRODUCTION_ROLE_ARN production environment secret. See deploy/README.md."
             exit 1
           fi
           if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ || -z "$AWS_DEV_STACK_NAME" || -z "$AWS_PROD_STACK_NAME" ]]; then
@@ -50,7 +50,7 @@ jobs:
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Read and validate both environment stacks
         id: targets
@@ -62,7 +62,7 @@ jobs:
             local stack_name="$1"
             local expected_environment="$2"
             local output_prefix="$3"
-            local stack_environment instance_id site_url
+            local stack_environment instance_id site_url origin_name
 
             stack_environment="$(aws cloudformation describe-stacks \
               --stack-name "$stack_name" \
@@ -80,12 +80,21 @@ jobs:
               --stack-name "$stack_name" \
               --query "Stacks[0].Outputs[?OutputKey=='SiteUrl'].OutputValue | [0]" \
               --output text)"
+            origin_name="$(aws cloudformation describe-stacks \
+              --stack-name "$stack_name" \
+              --query "Stacks[0].Outputs[?OutputKey=='OriginTlsServerName'].OutputValue | [0]" \
+              --output text)"
+            if [[ -z "$origin_name" || "$origin_name" == "None" ]]; then
+              echo "Configure the origin hostname and certificate for $stack_name before promotion. See deploy/README.md." >&2
+              exit 1
+            fi
             if [[ -z "$instance_id" || "$instance_id" == "None" || -z "$site_url" || "$site_url" == "None" ]]; then
               echo "Stack $stack_name must export InstanceId and SiteUrl outputs." >&2
               return 1
             fi
             echo "${output_prefix}_instance=$instance_id" >> "$GITHUB_OUTPUT"
             echo "${output_prefix}_site=$site_url" >> "$GITHUB_OUTPUT"
+            echo "${output_prefix}_origin_name=$origin_name" >> "$GITHUB_OUTPUT"
           }
 
           read_stack "$AWS_DEV_STACK_NAME" dev dev
@@ -99,7 +108,7 @@ jobs:
           set -euo pipefail
           dev_command=$(cat <<'REMOTE'
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 15 http://127.0.0.1:8000/health >/dev/null
+          docker exec chessdesk python -m backend.healthcheck
           image="$(docker inspect --format '{{.Config.Image}}' chessdesk)"
           image_tag="${image##*:}"
           if [[ "$image" != */chessdesk:"$image_tag" ]] || [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-([0-9a-f]{7})$ ]]; then
@@ -176,6 +185,7 @@ jobs:
           IMAGE_TAG: ${{ steps.dev.outputs.image_tag }}
           COMMIT: ${{ steps.dev.outputs.commit }}
           DEPLOY_ENVIRONMENT: production
+          ORIGIN_NAME: ${{ steps.targets.outputs.prod_origin_name }}
         run: |
           set -euo pipefail
           jq -n \
@@ -184,13 +194,14 @@ jobs:
             --arg commit "$COMMIT" \
             --arg deployment_environment "$DEPLOY_ENVIRONMENT" \
             --arg region "$AWS_REGION" \
+            --arg origin_name "$ORIGIN_NAME" \
             '{
               InstanceIds: [$instance_id],
               DocumentName: "AWS-RunShellScript",
               Comment: ("ChessDesk promote " + $image_tag),
               TimeoutSeconds: 600,
               Parameters: {
-                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + $commit + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && bash /opt/chessdesk/deploy/deploy-ec2.sh " + $image_tag + " " + $commit + " " + $region + " " + $deployment_environment)],
+                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + ($commit | @sh) + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && " + (["bash", "/opt/chessdesk/deploy/deploy-ec2.sh", $image_tag, $commit, $region, $deployment_environment, $origin_name] | @sh))],
                 executionTimeout: ["3000"]
               }
             }' > "$RUNNER_TEMP/ssm-prod-command.json"

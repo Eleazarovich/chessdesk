@@ -99,6 +99,37 @@ the credentials configured for your PostgreSQL instance.
 Login returns an `access_token` for `Authorization: Bearer <token>` requests
 and also sets the `chessdesk_session` HttpOnly cookie.
 
+Sessions expire after seven days on the server as well as in the browser.
+Only a SHA-256 digest of each token is stored. On the first start after the
+security upgrade, the backend adds the expiry column and invalidates legacy
+sessions; users must sign in again. Accounts and business records are preserved.
+
+Authentication requests are limited to 16 KiB, passwords to 1,024 characters,
+and signup names to 200 characters. The database stores atomic, expiring rate
+limits shared by workers and retained across restarts:
+
+| Endpoint | Per IP | Per account | Across the instance's database |
+| --- | --- | --- | --- |
+| Login | 30/minute | 10/15 minutes | 300/minute |
+| Signup | 5/hour | — | 50/hour |
+| Password reset | 10/hour | 3/hour | — |
+
+Limits count requests, use fixed windows, and return HTTP 429 with `Retry-After`.
+Password hashing runs in the worker pool, with at most four concurrent hashes
+per process. Rate policies are in `backend/rate_limit.py`.
+
+Only the hosted EC2 deployment sets `CHESSDESK_TRUST_CLOUDFRONT=true`. It relies
+on the origin security group accepting traffic exclusively from CloudFront
+and takes the rightmost address CloudFront appends to `X-Forwarded-For`.
+Leave this disabled for a directly reachable API or a different proxy chain.
+Account and global limits apply independently of the reported client address.
+
+The container starts through `backend.serve`. Local Compose continues to use
+HTTP. Hosted deployments require TLS using `CHESSDESK_REQUIRE_TLS=true`,
+`CHESSDESK_TLS_CERTFILE`, `CHESSDESK_TLS_KEYFILE`, and
+`CHESSDESK_TLS_SERVER_NAME`. The health check verifies the local TLS certificate,
+including its hostname. See `deploy/README.md` for certificate provisioning.
+
 Run tests with:
 
 ```bash

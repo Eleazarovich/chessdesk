@@ -1,0 +1,56 @@
+# Targeted regression checks for the audited deployment boundaries.
+# Run against both chessdesk-ec2.yaml and github-actions-role.yaml.
+
+rule origin_tls when Resources.ChessDeskDistribution exists {
+    Resources.ChessDeskDistribution.Properties.DistributionConfig {
+        Origins[*].CustomOriginConfig {
+            OriginProtocolPolicy == 'https-only'
+            HTTPSPort == 8000
+            OriginSSLProtocols[*] == 'TLSv1.2'
+        }
+        DefaultCacheBehavior.ViewerProtocolPolicy == 'redirect-to-https'
+    }
+}
+
+rule build_role_permissions when Resources.ChessDeskGitHubDeployRole exists {
+    Resources.ChessDeskGitHubDeployRole.Properties {
+        AssumeRolePolicyDocument.Statement[*].Condition.StringEquals {
+            'token.actions.githubusercontent.com:aud' == 'sts.amazonaws.com'
+            'token.actions.githubusercontent.com:sub'.Ref == 'GitHubSubject'
+        }
+        Policies[*].PolicyDocument.Statement[*] {
+            when Action is_string {
+                Action == 'ecr:GetAuthorizationToken'
+            }
+            when Action is_list {
+                Action[*] IN [
+                    'ecr:BatchCheckLayerAvailability', 'ecr:CompleteLayerUpload',
+                    'ecr:InitiateLayerUpload', 'ecr:PutImage', 'ecr:UploadLayerPart'
+                ]
+            }
+        }
+    }
+}
+
+rule dev_role_boundary when Resources.ChessDeskGitHubDeployRole exists {
+    Resources.ChessDeskGitHubDevRole.Properties {
+        AssumeRolePolicyDocument.Statement[*].Condition.StringEquals {
+            'token.actions.githubusercontent.com:aud' == 'sts.amazonaws.com'
+            'token.actions.githubusercontent.com:sub'.Ref == 'GitHubDevEnvironmentSubject'
+        }
+        Policies[*].PolicyDocument.Statement[ Sid == 'CommandEnvironmentInstances' ] {
+            Action == 'ssm:SendCommand'
+            Condition.StringEquals {
+                'ssm:resourceTag/Project' == 'ChessDesk'
+                'ssm:resourceTag/Environment'[*] == 'dev'
+            }
+        }
+    }
+}
+
+rule production_role_trust when Resources.ChessDeskGitHubDeployRole exists {
+    Resources.ChessDeskGitHubProductionRole.Properties.AssumeRolePolicyDocument.Statement[*].Condition.StringEquals {
+        'token.actions.githubusercontent.com:aud' == 'sts.amazonaws.com'
+        'token.actions.githubusercontent.com:sub'.Ref == 'GitHubProductionEnvironmentSubject'
+    }
+}
