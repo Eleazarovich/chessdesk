@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 760" role="img" aria-labelledby="title description">
+  <title id="title">ChessDesk architecture</title>
+  <desc id="description">The coach uses the Next.js browser app, which calls the FastAPI API and accesses the SQL database through SQLAlchemy. The API exports traces and metrics through an OpenTelemetry Collector to Prometheus and Tempo, which Grafana queries.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M 1 1 L 11 6 L 1 11 z" fill="#9b8afb"/>
+    </marker>
+    <marker id="arrowTeal" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M 1 1 L 11 6 L 1 11 z" fill="#39c9aa"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .card { fill: #171722; stroke: #393748; stroke-width: 2; }
+      .title { fill: #f2f0fb; font-size: 23px; font-weight: 700; }
+      .body { fill: #c4c0d3; font-size: 17px; }
+      .small { fill: #aaa5bb; font-size: 14px; }
+      .wire { fill: none; stroke: #9b8afb; stroke-width: 3; marker-end: url(#arrow); }
+      .telemetry { fill: none; stroke: #39c9aa; stroke-width: 3; marker-end: url(#arrowTeal); }
+      .wire-label { fill: #bdb6e8; font-size: 14px; font-weight: 600; }
+      .telemetry-label { fill: #68ddc1; font-size: 14px; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="760" rx="24" fill="#0d0d14"/>
+  <text x="48" y="58" class="title" style="font-size:30px">ChessDesk architecture</text>
+  <text x="48" y="88" class="small">Application requests, persistence, and observability data flow</text>
+
+  <rect x="50" y="164" width="270" height="194" rx="18" class="card"/>
+  <rect x="74" y="188" width="42" height="32" rx="6" fill="#282339" stroke="#9274ff" stroke-width="2"/>
+  <path d="M75 198h40" stroke="#9274ff" stroke-width="2"/>
+  <circle cx="83" cy="193" r="2" fill="#c6b9ff"/>
+  <circle cx="91" cy="193" r="2" fill="#c6b9ff"/>
+  <text x="74" y="252" class="title">Coach app</text>
+  <text x="74" y="282" class="body">Next.js 15 · React 19</text>
+  <text x="74" y="310" class="small">Clients, schedule, invoices</text>
+  <text x="74" y="333" class="small">Dashboard and profile</text>
+
+  <rect x="400" y="164" width="300" height="194" rx="18" class="card"/>
+  <rect x="424" y="188" width="38" height="38" rx="11" fill="#282339"/>
+  <path d="M434 199h18M434 207h18M434 215h12" stroke="#a994ff" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="424" y="252" class="title">FastAPI backend</text>
+  <text x="424" y="282" class="body">Authentication · REST API</text>
+  <text x="424" y="310" class="small">Access checks and business rules</text>
+  <text x="424" y="333" class="small">OpenAPI docs at /api/v1/docs</text>
+
+  <rect x="1030" y="164" width="320" height="194" rx="18" class="card"/>
+  <rect x="1054" y="188" width="38" height="38" rx="11" fill="#1c302e"/>
+  <ellipse cx="1073" cy="198" rx="11" ry="4" fill="none" stroke="#55d2b6" stroke-width="2"/>
+  <path d="M1062 198v17c0 5 22 5 22 0v-17M1062 206c0 5 22 5 22 0" fill="none" stroke="#55d2b6" stroke-width="2"/>
+  <text x="1054" y="252" class="title">SQL database</text>
+  <text x="1054" y="282" class="body">SQLAlchemy persistence</text>
+  <text x="1054" y="310" class="body">SQLite locally</text>
+  <text x="1054" y="333" class="small">PostgreSQL 16 in Docker Compose</text>
+
+  <path d="M320 258 H400" class="wire"/>
+  <text x="334" y="241" class="wire-label">REST / JSON</text>
+  <path d="M700 258 H1030" class="wire"/>
+  <text x="817" y="241" class="wire-label">SQLAlchemy queries</text>
+
+  <rect x="400" y="498" width="300" height="164" rx="18" class="card"/>
+  <rect x="424" y="522" width="38" height="38" rx="11" fill="#1c302e"/>
+  <path d="M434 533h18v15h-18zM438 529h18v15" fill="none" stroke="#55d2b6" stroke-width="2" stroke-linejoin="round"/>
+  <text x="424" y="588" class="title">OpenTelemetry Collector</text>
+  <text x="424" y="618" class="body">Receives OTLP traces and metrics</text>
+  <text x="424" y="642" class="small">Private local Docker network</text>
+
+  <rect x="820" y="444" width="205" height="130" rx="18" class="card"/>
+  <circle cx="853" cy="481" r="14" fill="#e6522c"/>
+  <path d="M846 486l5-12 4 8 4-5" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="878" y="486" class="title" style="font-size:20px">Prometheus</text>
+  <text x="844" y="526" class="small">Stores application metrics</text>
+  <text x="844" y="548" class="small">Rates, latency, errors, DB pool</text>
+
+  <rect x="820" y="610" width="205" height="108" rx="18" class="card"/>
+  <circle cx="853" cy="646" r="14" fill="#6d4aff"/>
+  <path d="M844 646h18M853 637v18M847 640l12 12M859 640l-12 12" stroke="#fff" stroke-width="1.7"/>
+  <text x="878" y="652" class="title" style="font-size:20px">Tempo</text>
+  <text x="844" y="690" class="small">Stores distributed traces</text>
+
+  <rect x="1110" y="500" width="240" height="164" rx="18" class="card"/>
+  <rect x="1134" y="524" width="38" height="38" rx="11" fill="#282339"/>
+  <path d="M1142 552v-9l6-5 6 3 6-8M1142 546l6-4 6 2 6-5" fill="none" stroke="#b39cff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1185" y="551" class="title">Grafana</text>
+  <text x="1134" y="598" class="body">Metrics + trace queries</text>
+  <text x="1134" y="626" class="small">Metrics dashboard</text>
+  <text x="1134" y="648" class="small">Trace explorer</text>
+
+  <path d="M550 358 V498" class="telemetry"/>
+  <rect x="460" y="410" width="190" height="30" rx="8" fill="#10211f"/>
+  <text x="485" y="430" class="telemetry-label">OTLP traces + metrics</text>
+
+  <path d="M700 545 H820" class="telemetry"/>
+  <text x="725" y="528" class="telemetry-label">metrics</text>
+  <path d="M700 665 C755 665 765 664 820 664" class="telemetry"/>
+  <text x="729" y="646" class="telemetry-label">traces</text>
+
+  <path d="M1025 493 C1060 493 1068 545 1110 545" class="telemetry"/>
+  <text x="1042" y="488" class="telemetry-label">query</text>
+  <path d="M1025 665 C1064 665 1073 622 1110 622" class="telemetry"/>
+  <text x="1043" y="687" class="telemetry-label">query</text>
+
+  <text x="50" y="740" class="small">Production serves the frontend and API from one container; local development can run them separately.</text>
+</svg>

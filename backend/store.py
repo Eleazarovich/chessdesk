@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import calendar
 import os
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -55,6 +56,20 @@ def _env_enabled(name: str, *, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _sample_date(
+    today: date, months_ago: int, day: int, *, before_today: bool = False,
+) -> date:
+    """Place demo records in a rolling six-month window, including today-relative examples."""
+
+    month_index = today.year * 12 + today.month - 1 - months_ago
+    year, month_zero_based = divmod(month_index, 12)
+    month = month_zero_based + 1
+    sample_day = min(day, calendar.monthrange(year, month)[1])
+    if before_today and months_ago == 0:
+        sample_day = min(sample_day, max(1, today.day - 1))
+    return date(year, month, sample_day)
 
 
 class Store:
@@ -552,6 +567,8 @@ class Store:
             if db.scalar(select(CoachORM.id).limit(1)) is not None:
                 return
 
+            today = self.today()
+
             db.add(CoachORM(
                 id="coach-001", name="Thabo Nkosi", email="thabo@chessops.co.za",
                 phone="+27 82 345 6789", business_name="Nkosi Chess Academy", currency="ZAR",
@@ -599,43 +616,45 @@ class Store:
                 ))
 
             sessions = [
-                ("session-001", "client-001", "2026-09-08", "14:00", 60, None, "in-person", "Rosebank Library", "scheduled", ""),
-                ("session-002", "client-002", "2026-09-09", "16:00", 60, None, "online", "", "scheduled", "Tactics session — forks and pins."),
-                ("session-003", "client-005", "2026-09-10", "14:30", 90, None, "in-person", "School Hall", "scheduled", ""),
-                ("session-004", "client-006", "2026-09-12", "08:00", 60, None, "in-person", "Library Room B", "scheduled", ""),
-                ("session-005", "client-001", "2026-08-25", "14:00", 60, 55, "in-person", "Rosebank Library", "completed", "Covered endgame rook techniques."),
-                ("session-006", "client-002", "2026-08-26", "16:00", 60, 60, "online", "", "completed", ""),
-                ("session-007", "client-003", "2026-08-20", "10:00", 45, 45, "in-person", "Client home", "completed", "Basics of piece movement."),
-                ("session-008", "client-005", "2026-08-27", "14:30", 90, 85, "in-person", "School Hall", "completed", "Group opening theory."),
-                ("session-009", "client-006", "2026-08-29", "08:00", 60, 60, "in-person", "Library Room B", "completed", ""),
-                ("session-010", "client-001", "2026-08-15", "14:00", 60, None, "in-person", "Rosebank Library", "cancelled", "Student unwell."),
-                ("session-011", "client-002", "2026-07-28", "16:00", 60, 60, "online", "", "completed", ""),
-                ("session-012", "client-003", "2026-07-22", "10:00", 45, 40, "in-person", "Client home", "completed", ""),
+                ("session-001", "client-001", today + timedelta(days=2), "14:00", 60, None, "in-person", "Rosebank Library", "scheduled", ""),
+                ("session-002", "client-002", today + timedelta(days=3), "16:00", 60, None, "online", "", "scheduled", "Tactics session — forks and pins."),
+                ("session-003", "client-005", today + timedelta(days=4), "14:30", 90, None, "in-person", "School Hall", "scheduled", ""),
+                ("session-004", "client-006", today + timedelta(days=6), "08:00", 60, None, "in-person", "Library Room B", "scheduled", ""),
+                ("session-005", "client-001", _sample_date(today, 0, 12, before_today=True), "14:00", 60, 55, "in-person", "Rosebank Library", "completed", "Covered endgame rook techniques."),
+                ("session-006", "client-002", _sample_date(today, 1, 20), "16:00", 60, 60, "online", "", "completed", ""),
+                ("session-007", "client-003", _sample_date(today, 2, 18), "10:00", 45, 45, "in-person", "Client home", "completed", "Basics of piece movement."),
+                ("session-008", "client-005", _sample_date(today, 3, 23), "14:30", 90, 85, "in-person", "School Hall", "completed", "Group opening theory."),
+                ("session-009", "client-006", _sample_date(today, 4, 20), "08:00", 60, 60, "in-person", "Library Room B", "completed", ""),
+                ("session-010", "client-001", _sample_date(today, 1, 12), "14:00", 60, None, "in-person", "Rosebank Library", "cancelled", "Student unwell."),
+                ("session-011", "client-002", _sample_date(today, 5, 24), "16:00", 60, 60, "online", "", "completed", ""),
+                ("session-012", "client-003", _sample_date(today, 5, 10), "10:00", 45, 40, "in-person", "Client home", "completed", ""),
             ]
             for session_id, client_id, session_date, start_time, planned, actual, session_type, location, status, notes in sessions:
                 db.add(CoachingSessionORM(
                     id=session_id, coach_id="coach-001", client_id=client_id,
-                    date=date.fromisoformat(session_date), start_time=start_time,
+                    date=session_date, start_time=start_time,
                     planned_duration=planned, actual_duration=actual,
                     session_type=session_type, location=location, status=status, notes=notes,
                 ))
             db.flush()
 
+            current_invoice_date = _sample_date(today, 0, 12, before_today=True)
+            current_paid_date = min(today, current_invoice_date + timedelta(days=4))
             invoices = [
-                ("inv-001", "client-001", "2026-08-31", "2026-09-07", 800, "August sessions — Amahle Dlamini (2 sessions)", "unpaid", None, None, "", ""),
-                ("inv-002", "client-002", "2026-08-31", "2026-09-07", 900, "August sessions — Liam van der Berg (2 sessions)", "paid", "2026-09-02", "eft", "EFT-20260902-LVB", ""),
-                ("inv-003", "client-005", "2026-08-31", "2026-09-14", 2800, "August group sessions — Greenfields Primary (2 sessions)", "unpaid", None, None, "", "Awaiting school purchase order."),
-                ("inv-004", "client-006", "2026-08-31", "2026-09-14", 1800, "August sessions — Sunridge High School", "paid", "2026-09-04", "eft", "SHS-AUG26", ""),
-                ("inv-005", "client-003", "2026-08-31", "2026-09-07", 350, "August session — Sipho Mokoena", "paid", "2026-09-01", "cash", "", ""),
-                ("inv-006", "client-001", "2026-07-31", "2026-08-07", 400, "July session — Amahle Dlamini", "paid", "2026-08-05", "eft", "", ""),
-                ("inv-007", "client-002", "2026-07-31", "2026-08-07", 450, "July session — Liam van der Berg", "paid", "2026-08-03", "eft", "", ""),
+                ("inv-001", "client-001", current_invoice_date, current_invoice_date + timedelta(days=14), 800, "Coaching sessions — Amahle Dlamini", "unpaid", None, None, "", ""),
+                ("inv-002", "client-002", current_invoice_date, current_invoice_date + timedelta(days=14), 900, "Coaching sessions — Liam van der Berg", "paid", current_paid_date, "eft", "EFT-LVB-DEMO", ""),
+                ("inv-003", "client-005", _sample_date(today, 1, 26), _sample_date(today, 1, 26) + timedelta(days=14), 2800, "Group sessions — Greenfields Primary", "unpaid", None, None, "", "Awaiting school purchase order."),
+                ("inv-004", "client-006", _sample_date(today, 2, 22), _sample_date(today, 2, 22) + timedelta(days=14), 1800, "Sessions — Sunridge High School", "paid", _sample_date(today, 2, 22) + timedelta(days=5), "eft", "SHS-DEMO", ""),
+                ("inv-005", "client-003", _sample_date(today, 3, 18), _sample_date(today, 3, 18) + timedelta(days=14), 350, "Session — Sipho Mokoena", "paid", _sample_date(today, 3, 18) + timedelta(days=3), "cash", "", ""),
+                ("inv-006", "client-001", _sample_date(today, 4, 12), _sample_date(today, 4, 12) + timedelta(days=14), 400, "Sessions — Amahle Dlamini", "paid", _sample_date(today, 4, 12) + timedelta(days=2), "eft", "", ""),
+                ("inv-007", "client-002", _sample_date(today, 5, 24), _sample_date(today, 5, 24) + timedelta(days=14), 450, "Sessions — Liam van der Berg", "paid", _sample_date(today, 5, 24) + timedelta(days=3), "eft", "", ""),
             ]
             for invoice_id, client_id, invoice_date, due_date, amount, description, status, paid_date, payment_method, reference, notes in invoices:
                 db.add(InvoiceORM(
                     id=invoice_id, coach_id="coach-001", client_id=client_id,
-                    invoice_date=date.fromisoformat(invoice_date), due_date=date.fromisoformat(due_date),
+                    invoice_date=invoice_date, due_date=due_date,
                     amount=amount, description=description, status=status,
-                    paid_date=date.fromisoformat(paid_date) if paid_date else None,
+                    paid_date=paid_date,
                     payment_method=payment_method, payment_reference=reference, notes=notes,
                 ))
             db.flush()
@@ -654,16 +673,16 @@ class Store:
                 ])
 
             for expense_id, expense_date, amount, category, description in [
-                ("exp-001", "2026-09-03", 420, "transport", "Fuel — Rosebank + Greenfields trips"),
-                ("exp-002", "2026-09-01", 199, "internet", "Mobile data bundle"),
-                ("exp-003", "2026-08-28", 650, "chess_materials", "Chess sets for Greenfields Primary"),
-                ("exp-004", "2026-08-22", 180, "transport", "Fuel — August school visits"),
-                ("exp-005", "2026-08-15", 95, "food", "Lunch during long session day"),
-                ("exp-006", "2026-07-30", 1200, "equipment", "Digital chess clock"),
-                ("exp-007", "2026-07-18", 320, "transport", "Fuel — July"),
+                ("exp-001", _sample_date(today, 0, 6, before_today=True), 420, "transport", "Fuel — Rosebank + Greenfields trips"),
+                ("exp-002", _sample_date(today, 0, 17, before_today=True), 199, "internet", "Mobile data bundle"),
+                ("exp-003", _sample_date(today, 1, 28), 650, "chess_materials", "Chess sets for Greenfields Primary"),
+                ("exp-004", _sample_date(today, 2, 22), 180, "transport", "Fuel — school visits"),
+                ("exp-005", _sample_date(today, 3, 15), 95, "food", "Lunch during a long session day"),
+                ("exp-006", _sample_date(today, 4, 20), 1200, "equipment", "Digital chess clock"),
+                ("exp-007", _sample_date(today, 5, 18), 320, "transport", "Fuel — coaching visits"),
             ]:
                 db.add(ExpenseORM(
-                    id=expense_id, coach_id="coach-001", date=date.fromisoformat(expense_date),
+                    id=expense_id, coach_id="coach-001", date=expense_date,
                     amount=amount, category=category, description=description,
                 ))
             db.add_all([

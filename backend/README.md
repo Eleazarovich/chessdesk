@@ -18,8 +18,10 @@ DATABASE_URL=postgresql://chessdesk:password@localhost:5432/chessdesk \
 ```
 
 The backend uses the Psycopg 3 driver for `postgresql://` and legacy
-`postgres://` URLs. It creates missing tables and seeds the demo account when
-the database is empty. PostgreSQL must be running and the configured database
+`postgres://` URLs. It creates missing tables and, by default, seeds synthetic
+development records into an empty database. Set `CHESSDESK_SEED_DEMO=false` to
+disable seeding; hosted deployments do this, so there is no shared demo account
+or public demo login. PostgreSQL must be running and the configured database
 must already exist before starting the API.
 
 The API is available at `http://127.0.0.1:8000/api/v1`; interactive docs are at
@@ -94,9 +96,8 @@ docker run --rm -p 8000:8000 \
 Replace `postgres` with the hostname reachable from the API container and use
 the credentials configured for your PostgreSQL instance.
 
-The seeded demo account is `thabo@chessops.co.za` / `chess2026!`. Login returns
-an `access_token` for `Authorization: Bearer <token>` requests and also sets the
-`chessdesk_session` HttpOnly cookie.
+Login returns an `access_token` for `Authorization: Bearer <token>` requests
+and also sets the `chessdesk_session` HttpOnly cookie.
 
 Run tests with:
 

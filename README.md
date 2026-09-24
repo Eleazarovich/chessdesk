@@ -9,7 +9,13 @@ The project is aimed at small coaching businesses in South Africa. It records bu
 
 ## Demo
 
-The repository includes synthetic coach, student, school, session, invoice, and expense records. These screenshots show the seeded local demo:
+The repository includes synthetic coach, student, school, session, invoice, and expense records. The seeded dates move with the current date, so the six-month dashboard and upcoming sessions remain useful in a fresh local database. Screenshots use local sample data; there is no shared hosted demo account or public demo login.
+
+### Dashboard
+
+The dashboard summarizes revenue, payments, outstanding invoices, expenses, net income, session activity, and upcoming coaching sessions.
+
+![ChessDesk dashboard with seeded sample records](docs/screenshots/dashboard.png)
 
 ### Clients
 
@@ -22,13 +28,6 @@ Individual students and school clients share one searchable list, with contact p
 Review paid and unpaid invoices, due dates, client balances, and collected totals in rand.
 
 ![ChessDesk invoice list with seeded demo records](docs/screenshots/invoices.png)
-
-To sign in to the local demo, use:
-
-- Email: **thabo@chessops.co.za**
-- Password: **chess2026!**
-
-This account and password are for local demonstration only. A fresh database is seeded by default; set <code>CHESSDESK_SEED_DEMO=false</code> for a hosted deployment.
 
 ## Features
 
@@ -54,6 +53,8 @@ Session changes can create notification records according to each client's prefe
 
 In the repository root, install Python dependencies and start the API:
 
+    git clone https://github.com/Eleazarovich/chessdesk.git
+    cd chessdesk
     uv sync
     make dev
 
@@ -92,12 +93,9 @@ The API also answers <code>GET /health</code>. See [backend setup notes](backend
 
 ## Architecture
 
-The browser runs the Next.js frontend. It calls the FastAPI REST API, which authenticates the coach and reads or writes application records through SQLAlchemy. The backend uses SQLite for a simple local run and PostgreSQL in Docker Compose.
+The diagram shows the browser request path, database access, and telemetry flow. Loki is included in the local observability stack, but the application does not currently export OTLP logs.
 
-When telemetry is enabled, FastAPI and SQLAlchemy instrumentation export traces and metrics over OTLP. The included stack routes traces to Tempo, metrics to Prometheus, and provides Grafana dashboards. Loki is included for log storage, but the application does not currently export OTLP logs.
-
-    Browser → Next.js 15 frontend → FastAPI API → SQLAlchemy → SQLite or PostgreSQL
-    FastAPI and SQLAlchemy → OpenTelemetry Collector → Prometheus and Tempo → Grafana
+![ChessDesk application and observability architecture](docs/architecture.svg)
 
 ## Technology
 
@@ -144,7 +142,7 @@ The local observability stack and current metrics are described in [observabilit
 - Session notification events are stored in the app's database; no real WhatsApp or email provider is integrated.
 - Password-reset requests return the same accepted response for any address, but no reset email is sent.
 - Dashboard charts and summaries use recorded business data; they do not provide accounting, tax, or payment processing.
-- Demo seed sessions and invoices use fixed sample dates, so their upcoming-session and period summaries can become stale over time.
+- Demo seed records use dates relative to the current date and are added only when the database is empty.
 - There is no parent, learner, or school portal, team management, chess engine, or online game interface.
 
 Integrating message delivery and a real password-reset flow are natural follow-up tasks. The [MVP specification](docs/spec.md) describes the original product scope.
