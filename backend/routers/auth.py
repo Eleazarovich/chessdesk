@@ -17,6 +17,7 @@ from ..auth import (
     verify_password,
 )
 from ..models import AuthResponse, AuthUser, LoginRequest, ResetPasswordRequest, SignUpRequest
+from ..rate_limit import enforce_auth_limits
 from ..store import UserRecord, get_store
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -36,11 +37,14 @@ def _auth_response(record: UserRecord, response: Response) -> AuthResponse:
         secure=COOKIE_SECURE,
     )
     response.headers["X-Access-Token"] = token
+    response.headers["Cache-Control"] = "no-store"
     return AuthResponse(**record.user.model_dump(), access_token=token)
 
 
 @router.post("/login", response_model=AuthResponse, operation_id="login")
-async def login(payload: LoginRequest, response: Response) -> AuthResponse:
+def login(payload: LoginRequest, request: Request, response: Response) -> AuthResponse:
+    # Synchronous routes run in FastAPI's worker pool, including password hashing.
+    enforce_auth_limits(request, str(payload.email), "login")
     record = get_store().user_by_email(str(payload.email))
     if record is None or not verify_password(payload.password, record.password_hash):
         raise HTTPException(
@@ -52,7 +56,8 @@ async def login(payload: LoginRequest, response: Response) -> AuthResponse:
 
 
 @router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED, operation_id="signUp")
-async def signup(payload: SignUpRequest, response: Response) -> AuthResponse:
+def signup(payload: SignUpRequest, request: Request, response: Response) -> AuthResponse:
+    enforce_auth_limits(request, str(payload.email), "signup")
     store = get_store()
     if store.user_by_email(str(payload.email)) is not None:
         raise HTTPException(
@@ -67,7 +72,8 @@ async def signup(payload: SignUpRequest, response: Response) -> AuthResponse:
 
 
 @router.post("/password/reset", status_code=status.HTTP_204_NO_CONTENT, operation_id="resetPassword")
-async def reset_password(payload: ResetPasswordRequest) -> None:
+def reset_password(payload: ResetPasswordRequest, request: Request) -> None:
+    enforce_auth_limits(request, str(payload.email), "reset")
     # This MVP deliberately does not reveal whether the email exists and does not
     # send real mail. A production implementation would enqueue a reset message.
     _ = payload

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import Boolean, Date, Float, ForeignKey, Integer, String, create_engine
+from sqlalchemy import BigInteger, Boolean, Date, Float, ForeignKey, Integer, String, create_engine, inspect
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -129,6 +129,15 @@ class TokenORM(Base):
 
     token: Mapped[str] = mapped_column(String(128), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    expires_at: Mapped[int] = mapped_column(BigInteger, index=True)
+
+
+class AuthRateLimitORM(Base):
+    __tablename__ = "auth_rate_limits"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    attempts: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[int] = mapped_column(BigInteger, index=True)
 
 
 class NotificationORM(Base):
@@ -178,6 +187,28 @@ def create_database_engine(database_url: str | None = None) -> Engine:
 
 def create_session_factory(engine: Engine) -> sessionmaker[Any]:
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+def migrate_auth_tokens(engine: Engine) -> None:
+    """Expire legacy sessions without changing users or business records.
+
+    create_all does not add columns to existing tables. Serialize this small
+    migration so simultaneous worker starts cannot add the column twice.
+    """
+
+    with engine.begin() as connection:
+        if engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+        elif engine.dialect.name == "postgresql":
+            connection.exec_driver_sql("LOCK TABLE auth_tokens IN ACCESS EXCLUSIVE MODE")
+        columns = {column["name"] for column in inspect(connection).get_columns("auth_tokens")}
+        if "expires_at" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE auth_tokens ADD COLUMN expires_at BIGINT NOT NULL DEFAULT 0"
+            )
+        connection.execute(TokenORM.__table__.delete().where(TokenORM.expires_at == 0))
+        for index in TokenORM.__table__.indexes:
+            index.create(connection, checkfirst=True)
 
 
 @contextmanager

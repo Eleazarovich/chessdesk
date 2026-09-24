@@ -19,6 +19,7 @@ telemetry = configure_telemetry()
 
 from .routers import auth, clients, dashboard, expenses, invoices, profile, sessions
 from .store import get_store
+from .request_limits import AuthBodyLimitMiddleware
 
 
 @asynccontextmanager
@@ -65,6 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Access-Token"],
 )
+app.add_middleware(AuthBodyLimitMiddleware)
 
 
 @app.exception_handler(HTTPException)

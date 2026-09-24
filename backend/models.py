@@ -79,13 +79,13 @@ class NotificationType(str, Enum):
 
 class LoginRequest(APIModel):
     email: EmailStr
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=6, max_length=1024)
 
 
 class SignUpRequest(APIModel):
-    name: str = Field(min_length=2)
+    name: str = Field(min_length=2, max_length=200)
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=1024)
 
 
 class ResetPasswordRequest(APIModel):

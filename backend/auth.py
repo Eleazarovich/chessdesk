@@ -6,25 +6,27 @@ import base64
 import hashlib
 import hmac
 import secrets
+from threading import BoundedSemaphore
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .store import UserRecord, get_store
+from .store import TOKEN_TTL_SECONDS, UserRecord, get_store
 
 SESSION_COOKIE = "chessdesk_session"
-TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
 
 _bearer = HTTPBearer(auto_error=False, scheme_name="bearerToken")
+_password_hash_slots = BoundedSemaphore(4)
 
 
 def hash_password(password: str) -> str:
     """Hash a password with scrypt and a per-password random salt."""
 
     salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(
-        password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1,
-    )
+    with _password_hash_slots:
+        digest = hashlib.scrypt(
+            password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1,
+        )
     return "scrypt$16384$8$1${}${}".format(
         base64.urlsafe_b64encode(salt).decode("ascii").rstrip("="),
         base64.urlsafe_b64encode(digest).decode("ascii").rstrip("="),
@@ -38,10 +40,11 @@ def verify_password(password: str, encoded_hash: str) -> bool:
             return False
         salt = base64.urlsafe_b64decode(encoded_salt + "=" * (-len(encoded_salt) % 4))
         expected = base64.urlsafe_b64decode(encoded_digest + "=" * (-len(encoded_digest) % 4))
-        actual = hashlib.scrypt(
-            password.encode("utf-8"), salt=salt,
-            n=int(n), r=int(r), p=int(p), dklen=len(expected),
-        )
+        with _password_hash_slots:
+            actual = hashlib.scrypt(
+                password.encode("utf-8"), salt=salt,
+                n=int(n), r=int(r), p=int(p), dklen=len(expected),
+            )
         return hmac.compare_digest(actual, expected)
     except (TypeError, ValueError):
         return False

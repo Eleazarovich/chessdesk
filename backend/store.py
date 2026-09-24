@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import calendar
+import hashlib
 import os
+import threading
+import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .database import (
     Base,
+    AuthRateLimitORM,
     ClientORM,
     CoachingSessionORM,
     CoachORM,
@@ -27,8 +33,10 @@ from .database import (
     create_database_engine,
     create_session_factory,
     database_url_from_env,
+    migrate_auth_tokens,
     session_scope,
 )
+
 from .models import (
     AuthUser,
     Client,
@@ -39,6 +47,9 @@ from .models import (
     Session,
     SchoolDetails,
 )
+
+
+TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
 
 
 @dataclass(frozen=True)
@@ -80,6 +91,7 @@ class Store:
         self.engine = create_database_engine(self.database_url)
         self.session_factory = create_session_factory(self.engine)
         Base.metadata.create_all(self.engine)
+        migrate_auth_tokens(self.engine)
         if _env_enabled("CHESSDESK_SEED_DEMO", default=True):
             self._seed_if_empty()
 
@@ -97,14 +109,14 @@ class Store:
         return date.today()
 
     def next_id(self, prefix: str) -> str:
+        insert = sqlite_insert if self.engine.dialect.name == "sqlite" else postgres_insert
         with session_scope(self.session_factory) as db:
-            counter = db.get(IdCounterORM, prefix)
-            if counter is None:
-                counter = IdCounterORM(prefix=prefix, value=0)
-                db.add(counter)
-                db.flush()
-            counter.value += 1
-            return f"{prefix}-{counter.value:03d}"
+            statement = insert(IdCounterORM).values(prefix=prefix, value=1)
+            statement = statement.on_conflict_do_update(
+                index_elements=[IdCounterORM.prefix],
+                set_={"value": IdCounterORM.value + 1},
+            ).returning(IdCounterORM.value)
+            return f"{prefix}-{db.scalar(statement):03d}"
 
     # Authentication and profile operations -----------------------------
 
@@ -160,17 +172,42 @@ class Store:
 
     def issue_token(self, token: str, user_id: str) -> None:
         with session_scope(self.session_factory) as db:
-            db.add(TokenORM(token=token, user_id=user_id))
+            now = int(time.time())
+            db.execute(delete(TokenORM).where(TokenORM.expires_at <= now))
+            db.add(TokenORM(
+                token=hashlib.sha256(token.encode()).hexdigest(),
+                user_id=user_id,
+                expires_at=now + TOKEN_TTL_SECONDS,
+            ))
 
     def revoke_token(self, token: str | None) -> None:
         if token is None:
             return
         with session_scope(self.session_factory) as db:
-            db.execute(delete(TokenORM).where(TokenORM.token == token))
+            db.execute(delete(TokenORM).where(
+                TokenORM.token == hashlib.sha256(token.encode()).hexdigest(),
+            ))
 
     def user_id_for_token(self, token: str) -> str | None:
         with session_scope(self.session_factory) as db:
-            return db.scalar(select(TokenORM.user_id).where(TokenORM.token == token))
+            return db.scalar(select(TokenORM.user_id).where(
+                TokenORM.token == hashlib.sha256(token.encode()).hexdigest(),
+                TokenORM.expires_at > int(time.time()),
+            ))
+
+    def consume_auth_limit(self, key: str, limit: int, expires_at: int) -> bool:
+        """Atomically reserve an attempt across workers and server restarts."""
+
+        insert = sqlite_insert if self.engine.dialect.name == "sqlite" else postgres_insert
+        with session_scope(self.session_factory) as db:
+            db.execute(delete(AuthRateLimitORM).where(AuthRateLimitORM.expires_at <= int(time.time())))
+            statement = insert(AuthRateLimitORM).values(key=key, attempts=1, expires_at=expires_at)
+            statement = statement.on_conflict_do_update(
+                index_elements=[AuthRateLimitORM.key],
+                set_={"attempts": AuthRateLimitORM.attempts + 1},
+                where=AuthRateLimitORM.attempts < limit,
+            ).returning(AuthRateLimitORM.attempts)
+            return db.scalar(statement) is not None
 
     # Client operations ---------------------------------------------------
 
@@ -695,15 +732,17 @@ class Store:
 
 
 _default_store: Store | None = None
+_store_lock = threading.Lock()
 
 
 def get_store() -> Store:
     global _default_store
     configured_url = database_url_from_env()
-    if _default_store is None or _default_store.database_url != configured_url:
-        if _default_store is not None:
-            _default_store.close()
-        _default_store = Store(configured_url)
+    with _store_lock:
+        if _default_store is None or _default_store.database_url != configured_url:
+            if _default_store is not None:
+                _default_store.close()
+            _default_store = Store(configured_url)
     return _default_store
 
 

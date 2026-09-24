@@ -81,6 +81,17 @@ Build the application for production:
   npm run build
   ```
 
+## Security maintenance
+
+Next.js is pinned to 15.5.26, PostCSS to 8.5.23, and Vitest/UI to 4.1.11.
+The package overrides also apply the patched PostCSS and Sharp 0.35.4 to
+transitive dependencies. Revisit these overrides when upgrading Next.js.
+Run `npm audit`, `npm test`, `npm run type-check`, and `npm run build` after
+dependency updates. The Docker image serves the static export through FastAPI.
+
+Invoice export escapes all supplied text, disables scripts in its print
+document, and removes the popup's reference to its opener.
+
 ## 📚 Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -39,6 +39,15 @@ paths:
             schema:
               $ref: '#/components/schemas/LoginRequest'
       responses:
+        '429':
+          description: Too many authentication attempts
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until another attempt is allowed
+        '413':
+          description: Authentication request exceeds 16 KiB
         '200':
           description: Authenticated coach
           headers:
@@ -67,6 +76,15 @@ paths:
             schema:
               $ref: '#/components/schemas/SignUpRequest'
       responses:
+        '429':
+          description: Too many authentication attempts
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until another attempt is allowed
+        '413':
+          description: Authentication request exceeds 16 KiB
         '201':
           description: Account created and authenticated
           headers:
@@ -95,6 +113,15 @@ paths:
             schema:
               $ref: '#/components/schemas/ResetPasswordRequest'
       responses:
+        '429':
+          description: Too many authentication attempts
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until another attempt is allowed
+        '413':
+          description: Authentication request exceeds 16 KiB
         '204':
           description: Reset request accepted
         '400':
@@ -810,6 +837,7 @@ components:
           type: string
           format: password
           minLength: 6
+          maxLength: 1024
 
     SignUpRequest:
       type: object
@@ -818,6 +846,7 @@ components:
         name:
           type: string
           minLength: 2
+          maxLength: 200
         email:
           type: string
           format: email
@@ -825,6 +854,7 @@ components:
           type: string
           format: password
           minLength: 8
+          maxLength: 1024
 
     ResetPasswordRequest:
       type: object
