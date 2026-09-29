@@ -1,15 +1,18 @@
 # AWS deployment
 
-ChessDesk uses the same CloudFormation template for two independent stacks:
+ChessDesk uses the same CloudFormation template for separate environments. The
+current low-cost setup keeps production running and pauses the extra hosts:
 
-- `chessdesk-ec2` is the existing dev environment. It keeps its current EC2
-  instance and data volume.
-- `chessdesk-ec2-prod` is the production environment. It gets its own EC2
-  instance, CloudFront distribution, security group, and retained encrypted
-  SQLite EBS volume. It starts with a fresh database; dev data is not copied.
+- `chessdesk-ec2-prod` is the production environment and remains online.
+- `chessdesk-pilot` remains online for coach testing.
+- `chessdesk-ec2` (dev) and `chessdesk-observability` are paused to reduce
+  compute and public IPv4 costs. Their CloudFormation stacks and EBS volumes
+  are retained for recovery, and their EBS storage continues to incur charges
+  while the instances are stopped.
 
-The stacks share the configured VPC and subnet. Their app instances, security
-groups, distributions, and databases are separate.
+Production has its own EC2 instance, CloudFront distribution, security group,
+and encrypted SQLite EBS volume. It has a separate database from dev. The app
+stacks share the configured VPC and subnet.
 
 Each stack has a distinct CloudFront HTTPS URL. Deleting either stack retains
 that stack's data volume, which remains billable until separately deleted.
@@ -17,6 +20,8 @@ that stack's data volume, which remains billable until separately deleted.
 The default viewer URLs are <https://d1bqcmvdafa6rq.cloudfront.net> (dev) and
 <https://d2mo1cbaii74n0.cloudfront.net> (production). A stack can use a custom
 viewer hostname with an ACM certificate while retaining the CloudFront URL.
+The pilot viewer URL is
+<https://d31zxie2q9jxf5.cloudfront.net>.
 
 ## Custom viewer domains
 
@@ -77,16 +82,16 @@ Before deploying the updated application:
    Keep the directory at mode 0700 and files at 0600, owned by UID/GID 10001.
    Keep keys out of git, shell command arguments, SSM command bodies, and logs.
    Ensure the host has the `openssl` command for certificate checks.
-3. Apply the IAM template and configure the three role secrets described
+3. Apply the IAM template and configure the build and production role secrets
    below. The old shared role becomes build-only; code changes alone do not
    revoke its permissions in AWS.
 4. Coordinate a maintenance window to apply `OriginDomainName` to each app
    stack and deploy the corresponding TLS-enabled image. Switching CloudFront
    before the matching TLS listener is running produces 502 responses until
-   the image deployment completes. Validate dev before performing this change
-   in production. The updated workflow refuses to deploy without the new
-   origin output, and the deployment script verifies the certificate chain, hostname,
-   key match, and at least 24 hours of validity before stopping the old image.
+   the image deployment completes. The workflow refuses to deploy without the
+   new origin output, and the deployment script verifies the certificate chain,
+   hostname, key match, and at least 24 hours of validity before stopping the
+   old image.
 5. Check the public `/health` endpoint and sign in again. Legacy application
    sessions are invalidated by the expiry migration; business data is retained.
 
@@ -115,30 +120,37 @@ The Guard rules cover origin encryption and the audited role boundaries.
 For a broader compliance review, download the relevant rules from the
 [AWS Guard rules registry](https://github.com/aws-cloudformation/aws-guard-rules-registry).
 
-GitHub Actions builds the application image after the checks pass, pushes it to
-the shared ECR repository, then deploys that image to dev. ECR rejects tag
-overwrites. Tags use the UTC
+GitHub Actions runs the backend, frontend, and Compose checks, builds the
+application image, pushes it to one shared ECR repository, and deploys it
+directly to production from `main`. This avoids keeping a second EC2 host online
+for testing. ECR rejects tag overwrites. Tags use the UTC
 `YYYYMMDD-HHMMSS-shortsha` format, for example `20260818-163457-83242da`.
-Production promotion is manual: run `Promote dev to production` from `main` and
-select `promote`. It checks the running dev container's health, reads its ECR
-image tag and full source commit, then pulls and deploys that exact image to
-production through Systems Manager. The production deploy waits for the new
-container's health check and restores the previous container if the new one
-fails. The workflow also checks the public production health endpoint. No SSH
-key or inbound SSH rule is used.
+The production deploy uses Systems Manager, waits for the new container's
+health check, and restores the previous container if the new one fails. The
+workflow then checks the public production health endpoint. No SSH key or
+inbound SSH rule is used. A GitHub `production` environment can be configured
+to require approval before deployment if desired.
 
 The backend exports OpenTelemetry request and SQLAlchemy spans, HTTP request and
-SQLAlchemy connection metrics when an OTLP endpoint is configured in the
-container. Every telemetry signal includes the
+SQLAlchemy connection metrics only when an OTLP endpoint is configured in the
+container. By default the production deployment disables exporters, so it does
+not need the observability host. To restore telemetry, set the GitHub repository
+variable `CHESSDESK_OTEL_ENDPOINT` to `http://otel.chessdesk.internal:4317` and
+start the observability instance. Every telemetry signal includes the
 `chessdesk-backend` service name, the `dev` or `production` deployment
 environment, and the full deployed Git commit SHA as `service.version`.
 
+To restore a paused host, start its EC2 instance in the AWS console or with the
+AWS API. A stopped instance releases its automatically assigned public IPv4
+address, so update that host's origin DNS record to its new public DNS name
+before using its CloudFront URL. The host's attached EBS data remains in place.
+
 ## One-time AWS setup
 
-The workflow defaults to region `af-south-1`, dev stack `chessdesk-ec2`, and
-production stack `chessdesk-ec2-prod`. Repository variables `AWS_REGION`,
-`AWS_DEV_STACK_NAME`, and `AWS_PROD_STACK_NAME` can override those values. The
-legacy `AWS_STACK_NAME` variable remains a fallback for dev.
+The workflow defaults to region `af-south-1` and production stack
+`chessdesk-ec2-prod`. Repository variables `AWS_REGION` and
+`AWS_PROD_STACK_NAME` can override those values. The dev stack name is needed
+only when restoring a separate dev deployment workflow.
 
 1. Ensure the AWS account has the GitHub OIDC identity provider
    `https://token.actions.githubusercontent.com`, with audience `sts.amazonaws.com`.
@@ -151,12 +163,11 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    ```
 
 2. Deploy `github-actions-role.yaml` in the same region. It creates the shared
-   ECR repository and three roles: the main-branch build role can publish images;
-   the dev environment role can run commands only on dev instances; and the
-   production environment role can inspect the running dev release and deploy
-   production. Only the protected production subject can obtain production
-   command permissions. Restrict the
-   GitHub `dev` and `production` environments to the `main` branch and disable
+   ECR repository and build, dev, and production roles. The lean workflow uses
+   only the build and production roles; the dev role remains available if a
+   separate dev deployment workflow is restored. The production role can run
+   commands only on ChessDesk app instances.
+   Restrict the GitHub `production` environment to the `main` branch and disable
    administrator bypass:
 
    ```sh
@@ -168,7 +179,6 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
      --parameter-overrides \
        GitHubOidcProviderArn=arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com \
        GitHubSubject=repo:Eleazarovich@96009758/chessdesk@1358729767:ref:refs/heads/main \
-       GitHubDevEnvironmentSubject=repo:Eleazarovich@96009758/chessdesk@1358729767:environment:dev \
        GitHubProductionEnvironmentSubject=repo:Eleazarovich@96009758/chessdesk@1358729767:environment:production \
        ChessDeskDevStackName=chessdesk-ec2 \
        ChessDeskProdStackName=chessdesk-ec2-prod
@@ -276,7 +286,6 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    | Stack output | GitHub secret | Scope |
    | --- | --- | --- |
    | `BuildRoleArn` | `AWS_BUILD_ROLE_ARN` | Repository |
-   | `DevRoleArn` | `AWS_DEV_ROLE_ARN` | `dev` environment |
    | `ProductionRoleArn` | `AWS_PRODUCTION_ROLE_ARN` | `production` environment |
 
    With GitHub CLI authenticated, these commands write the secrets:
@@ -289,10 +298,6 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
      --output text | gh secret set AWS_BUILD_ROLE_ARN --repo Eleazarovich/chessdesk
    aws cloudformation describe-stacks \
      --stack-name chessdesk-github-actions --region af-south-1 \
-     --query "Stacks[0].Outputs[?OutputKey=='DevRoleArn'].OutputValue | [0]" \
-     --output text | gh secret set AWS_DEV_ROLE_ARN --env dev --repo Eleazarovich/chessdesk
-   aws cloudformation describe-stacks \
-     --stack-name chessdesk-github-actions --region af-south-1 \
      --query "Stacks[0].Outputs[?OutputKey=='ProductionRoleArn'].OutputValue | [0]" \
      --output text | gh secret set AWS_PRODUCTION_ROLE_ARN --env production --repo Eleazarovich/chessdesk
    ```
@@ -300,15 +305,13 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
    The original role ARN remains the build role. Its legacy `RoleArn` output
    is retained for compatibility, but workflows never fall back to the old
    `AWS_ROLE_ARN` secret. Remove that obsolete GitHub secret after migration.
-   Restrict both environments to `main`, disable administrator bypass, and
-   require review for production. Changing workflow YAML alone cannot apply
+   Restrict the production environment to `main`, disable administrator
+   bypass, and require review if manual approval is desired. Changing workflow YAML alone cannot apply
    those GitHub environment protection settings.
 
 Pull requests run the backend, frontend, Compose integration, and Playwright
 E2E checks without AWS credentials. A push to `main` builds and pushes one
-timestamped image, then deploys it to dev only after all checks pass. Production
-promotion is a separate manual workflow and is allowed only from `main`; it
-promotes the image currently running in dev when the workflow runs, regardless
-of the commit used to start the workflow. After setting up or updating these
-resources, run CI/CD from `main` (push or `workflow_dispatch`) to deploy a new
-timestamped image to dev before using the promotion workflow.
+timestamped image, then deploys it to production only after all checks pass.
+The production deployment uses the production environment role and has a
+rollback health check. After setting up these resources, push to `main` or run
+CI/CD with `workflow_dispatch` from `main` to deploy.

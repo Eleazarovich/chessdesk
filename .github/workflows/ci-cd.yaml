@@ -138,41 +138,42 @@ jobs:
           echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
           echo "Pushed $image_repository:$image_tag"
 
-  deploy-dev:
-    name: Deploy image to dev
+  deploy-production:
+    name: Deploy image to production
     needs: [build-image]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: dev
+    environment: production
     timeout-minutes: 60
     concurrency:
-      group: chessdesk-dev
+      group: chessdesk-prod
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'af-south-1' }}
-      DEPLOY_ENVIRONMENT: dev
-      AWS_STACK_NAME: ${{ vars.AWS_DEV_STACK_NAME || vars.AWS_STACK_NAME || 'chessdesk-ec2' }}
+      DEPLOY_ENVIRONMENT: production
+      AWS_STACK_NAME: ${{ vars.AWS_PROD_STACK_NAME || 'chessdesk-ec2-prod' }}
     steps:
       - name: Validate AWS deployment configuration
         env:
-          AWS_DEV_ROLE_ARN: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          AWS_PRODUCTION_ROLE_ARN: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$AWS_DEV_ROLE_ARN" ]]; then
-            echo "::error title=AWS deployment is not bootstrapped::Set the AWS_DEV_ROLE_ARN dev environment secret. See deploy/README.md."
+          if [[ -z "$AWS_PRODUCTION_ROLE_ARN" ]]; then
+            echo "::error title=AWS deployment is not bootstrapped::Set the AWS_PRODUCTION_ROLE_ARN production environment secret. See deploy/README.md."
             exit 1
           fi
           if [[ ! "$AWS_REGION" =~ ^[a-z0-9-]+$ || -z "$AWS_STACK_NAME" ]]; then
-            echo "::error title=AWS deployment target is missing::Set AWS_REGION and optionally AWS_DEV_STACK_NAME repository variables, or use the workflow defaults."
+            echo "::error title=AWS deployment target is missing::Set AWS_REGION and optionally AWS_PROD_STACK_NAME repository variables, or use the workflow defaults."
             exit 1
           fi
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
-          role-to-assume: ${{ secrets.AWS_DEV_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Read deployment target from CloudFormation
         id: target
@@ -183,8 +184,8 @@ jobs:
             --stack-name "$AWS_STACK_NAME" \
             --query "Stacks[0].Parameters[?ParameterKey=='Environment'].ParameterValue | [0]" \
             --output text)"
-          if [[ "$stack_environment" != "$DEPLOY_ENVIRONMENT" ]]; then
-            echo "Stack $AWS_STACK_NAME has Environment=$stack_environment; refusing a $DEPLOY_ENVIRONMENT deployment." >&2
+          if [[ "$stack_environment" != "prod" ]]; then
+            echo "Stack $AWS_STACK_NAME has Environment=$stack_environment; refusing a production deployment." >&2
             exit 1
           fi
           instance_id="$(aws cloudformation describe-stacks \
@@ -216,7 +217,8 @@ jobs:
           INSTANCE_ID: ${{ steps.target.outputs.instance_id }}
           IMAGE_TAG: ${{ needs.build-image.outputs.image_tag }}
           ORIGIN_NAME: ${{ steps.target.outputs.origin_name }}
-          DEPLOY_ENVIRONMENT: dev
+          DEPLOY_ENVIRONMENT: production
+          OTEL_ENDPOINT: ${{ vars.CHESSDESK_OTEL_ENDPOINT || '' }}
         run: |
           set -euo pipefail
           jq -n \
@@ -226,13 +228,14 @@ jobs:
             --arg deployment_environment "$DEPLOY_ENVIRONMENT" \
             --arg region "$AWS_REGION" \
             --arg origin_name "$ORIGIN_NAME" \
+            --arg otel_endpoint "$OTEL_ENDPOINT" \
             '{
               InstanceIds: [$instance_id],
               DocumentName: "AWS-RunShellScript",
               Comment: ("ChessDesk deploy " + $image_tag),
               TimeoutSeconds: 600,
               Parameters: {
-                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + ($commit | @sh) + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && " + (["bash", "/opt/chessdesk/deploy/deploy-ec2.sh", $image_tag, $commit, $region, $deployment_environment, $origin_name] | @sh))],
+                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + ($commit | @sh) + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && " + (["bash", "/opt/chessdesk/deploy/deploy-ec2.sh", $image_tag, $commit, $region, $deployment_environment, $origin_name, $otel_endpoint] | @sh))],
                 executionTimeout: ["3000"]
               }
             }' > "$RUNNER_TEMP/ssm-command.json"

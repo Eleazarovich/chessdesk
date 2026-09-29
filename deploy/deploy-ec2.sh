@@ -6,6 +6,7 @@ commit="${2:-}"
 region="${3:-}"
 deployment_environment="${4:-}"
 origin_name="${5:-}"
+otel_endpoint="${6:-}"
 
 if [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$ \
   || ! "$commit" =~ ^[0-9a-f]{40}$ \
@@ -13,7 +14,11 @@ if [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$ \
   || ! "$region" =~ ^[a-z0-9-]+$ \
   || ! "$deployment_environment" =~ ^(dev|production)$ \
   || ! "$origin_name" =~ ^[A-Za-z0-9][A-Za-z0-9.-]+[A-Za-z0-9]$ ]]; then
-  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region> <dev|production> <origin hostname>" >&2
+  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region> <dev|production> <origin hostname> [OTLP endpoint]" >&2
+  exit 2
+fi
+if [[ -n "$otel_endpoint" && ! "$otel_endpoint" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^[:space:]]*)?$ ]]; then
+  echo "OTLP endpoint must be an HTTP(S) URL without spaces." >&2
   exit 2
 fi
 
@@ -81,6 +86,17 @@ if docker container inspect chessdesk >/dev/null 2>&1; then
   docker rename chessdesk "$rollback_container"
 fi
 
+telemetry_args=(
+  --env OTEL_TRACES_EXPORTER=none
+  --env OTEL_METRICS_EXPORTER=none
+)
+if [[ -n "$otel_endpoint" ]]; then
+  telemetry_args=(
+    --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otel_endpoint"
+    --env OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+  )
+fi
+
 docker run --detach \
   --name chessdesk \
   --restart unless-stopped \
@@ -95,8 +111,7 @@ docker run --detach \
   --env CHESSDESK_TLS_KEYFILE=/tls/privkey.pem \
   --env "CHESSDESK_TLS_SERVER_NAME=$origin_name" \
   --env CHESSDESK_TRUST_CLOUDFRONT=true \
-  --env OTEL_EXPORTER_OTLP_ENDPOINT=http://otel.chessdesk.internal:4317 \
-  --env OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+  "${telemetry_args[@]}" \
   --env "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=$deployment_environment,service.version=$commit" \
   "$image"
 
