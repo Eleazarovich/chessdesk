@@ -105,7 +105,9 @@ Before deploying the updated application:
    reports `Deployed`, verify the custom hostname through CloudFront, then
    change the Xneelo `chessdesk` CNAME to the stack's `CloudFrontDomainName`
    output. After the domain works, set `LegacyHttpOriginEnabled=false` to close
-   the old HTTP origin port.
+   the old HTTP origin port. Requests to the distribution's generated hostname
+   permanently redirect to the configured viewer hostname, keeping the
+   requested path and query parameters.
 7. Check the public `/health` endpoint and sign in again. Legacy application
    sessions are invalidated by the expiry migration; business data is retained.
 
