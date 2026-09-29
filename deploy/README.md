@@ -4,11 +4,10 @@ ChessDesk uses the same CloudFormation template for separate environments. The
 current low-cost setup keeps production running and pauses the extra hosts:
 
 - `chessdesk-ec2-prod` is the production environment and remains online.
-- `chessdesk-pilot` remains online for coach testing.
-- `chessdesk-ec2` (dev) and `chessdesk-observability` are paused to reduce
-  compute and public IPv4 costs. Their CloudFormation stacks and EBS volumes
-  are retained for recovery, and their EBS storage continues to incur charges
-  while the instances are stopped.
+- `chessdesk-pilot`, `chessdesk-ec2` (dev), and
+  `chessdesk-observability` are paused to reduce compute and public IPv4 costs.
+  Their CloudFormation stacks and EBS volumes are retained for recovery, and
+  their EBS storage continues to incur charges while the instances are stopped.
 
 Production has its own EC2 instance, CloudFront distribution, security group,
 and encrypted SQLite EBS volume. It has a separate database from dev. The app
@@ -20,8 +19,9 @@ that stack's data volume, which remains billable until separately deleted.
 The default viewer URLs are <https://d1bqcmvdafa6rq.cloudfront.net> (dev) and
 <https://d2mo1cbaii74n0.cloudfront.net> (production). A stack can use a custom
 viewer hostname with an ACM certificate while retaining the CloudFront URL.
-The pilot viewer URL is
-<https://d31zxie2q9jxf5.cloudfront.net>.
+The paused pilot viewer URL is
+<https://d31zxie2q9jxf5.cloudfront.net>; it will not work until the pilot host
+is restarted and its CloudFront origin points to the host's current public DNS.
 
 ## Custom viewer domains
 
@@ -142,8 +142,10 @@ environment, and the full deployed Git commit SHA as `service.version`.
 
 To restore a paused host, start its EC2 instance in the AWS console or with the
 AWS API. A stopped instance releases its automatically assigned public IPv4
-address, so update that host's origin DNS record to its new public DNS name
-before using its CloudFront URL. The host's attached EBS data remains in place.
+address, so its public DNS name can change. Update the origin DNS record or
+CloudFront origin to the new public DNS name before using its viewer URL. The
+pilot distribution currently points directly to its old EC2 public DNS name.
+The hosts' attached EBS data remains in place.
 
 ## One-time AWS setup
 
