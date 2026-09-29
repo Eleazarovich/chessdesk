@@ -196,6 +196,10 @@ jobs:
             --stack-name "$AWS_STACK_NAME" \
             --query "Stacks[0].Outputs[?OutputKey=='SiteUrl'].OutputValue | [0]" \
             --output text)"
+          cloudfront_domain="$(aws cloudformation describe-stacks \
+            --stack-name "$AWS_STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue | [0]" \
+            --output text)"
           origin_name="$(aws cloudformation describe-stacks \
             --stack-name "$AWS_STACK_NAME" \
             --query "Stacks[0].Outputs[?OutputKey=='OriginTlsServerName'].OutputValue | [0]" \
@@ -204,12 +208,13 @@ jobs:
             echo "Configure OriginDomainName and install its certificate before deployment. See deploy/README.md." >&2
             exit 1
           fi
-          if [[ -z "$instance_id" || "$instance_id" == "None" || -z "$site_url" || "$site_url" == "None" ]]; then
-            echo "Stack $AWS_STACK_NAME must export InstanceId and SiteUrl outputs." >&2
+          if [[ -z "$instance_id" || "$instance_id" == "None" || -z "$site_url" || "$site_url" == "None" || -z "$cloudfront_domain" || "$cloudfront_domain" == "None" ]]; then
+            echo "Stack $AWS_STACK_NAME must export InstanceId, SiteUrl, and CloudFrontDomainName outputs." >&2
             exit 1
           fi
           echo "instance_id=$instance_id" >> "$GITHUB_OUTPUT"
           echo "site_url=$site_url" >> "$GITHUB_OUTPUT"
+          echo "cloudfront_domain=$cloudfront_domain" >> "$GITHUB_OUTPUT"
           echo "origin_name=$origin_name" >> "$GITHUB_OUTPUT"
       - name: Deploy the image through Systems Manager
         shell: bash
@@ -285,15 +290,18 @@ jobs:
         shell: bash
         env:
           SITE_URL: ${{ steps.target.outputs.site_url }}
+          CLOUDFRONT_DOMAIN: ${{ steps.target.outputs.cloudfront_domain }}
         run: |
           set -euo pipefail
+          site_host="${SITE_URL#https://}"
+          connect_to="$site_host:443:$CLOUDFRONT_DOMAIN:443"
           for attempt in {1..36}; do
-            if response="$(curl --fail --silent --max-time 15 "$SITE_URL/health")"; then
+            if response="$(curl --connect-to "$connect_to" --fail --silent --max-time 15 "$SITE_URL/health")"; then
               echo "${SITE_URL}/health: $response"
               exit 0
             fi
             sleep 10
           done
           echo "Health check failed for ${SITE_URL}/health" >&2
-          curl --fail --show-error --max-time 15 "$SITE_URL/health" || true
+          curl --connect-to "$connect_to" --fail --show-error --max-time 15 "$SITE_URL/health" || true
           exit 1

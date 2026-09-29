@@ -33,7 +33,7 @@ RUN useradd --create-home --uid 10001 app \
     && chown -R app:app /app /data
 USER app
 
-EXPOSE 8000
+EXPOSE 8000 8443
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=90s --retries=3 \
     CMD ["python", "-m", "backend.healthcheck"]

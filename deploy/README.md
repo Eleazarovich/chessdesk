@@ -41,7 +41,9 @@ hostname for both makes CloudFront resolve its origin back to itself.
 For Xneelo DNS, ACM supplies a CNAME for certificate validation. Keep that
 record in place to allow ACM to renew the certificate. Xneelo requires a final
 period on CNAME destinations. Set the viewer CNAME destination to the stack's
-CloudFront distribution domain, with that final period.
+`CloudFrontDomainName` output, with that final period. Keep the production
+viewer record on its existing target until the CloudFront alias and TLS origin
+are deployed and verified.
 
 ## Security upgrade and origin certificates
 
@@ -52,12 +54,12 @@ approval. This configuration reuses the existing EC2 instance, EBS volume,
 security group, and CloudFront distribution; it adds no load balancer or secret
 storage service.
 
-CloudFront connects to the origin using HTTPS on port 8000. Each environment
-needs an origin hostname you control, such as `origin-dev.example.com`, with
-a publicly trusted certificate for that hostname. The `cloudfront.net` viewer
-certificate cannot be installed on EC2, and CloudFront does not accept a
-self-signed origin certificate. An ACME certificate can be free when an
-appropriate domain is already available; obtain approval before any purchase.
+CloudFront connects to the origin using HTTPS on port 8443 after the staged
+cutover. Each environment needs an origin hostname you control, such as
+`origin-dev.example.com`, with a publicly trusted certificate for that
+hostname. The `cloudfront.net` viewer certificate cannot be installed on EC2,
+and CloudFront does not accept a self-signed origin certificate. An ACME
+certificate can be free when an appropriate domain is already available.
 
 Custom viewer domains are optional. The existing domain can also provide the
 origin hostname, but keep the origin and viewer DNS names separate. A
@@ -85,14 +87,23 @@ Before deploying the updated application:
 3. Apply the IAM template and configure the build and production role secrets
    below. The old shared role becomes build-only; code changes alone do not
    revoke its permissions in AWS.
-4. Coordinate a maintenance window to apply `OriginDomainName` to each app
-   stack and deploy the corresponding TLS-enabled image. Switching CloudFront
-   before the matching TLS listener is running produces 502 responses until
-   the image deployment completes. The workflow refuses to deploy without the
-   new origin output, and the deployment script verifies the certificate chain,
-   hostname, key match, and at least 24 hours of validity before stopping the
-   old image.
-5. Check the public `/health` endpoint and sign in again. Legacy application
+4. After the viewer certificate is `ISSUED`, update the production stack with
+   `OriginDomainName`, `ViewerDomainName`, and `ViewerCertificateArn`, keeping
+   `EnableOriginHttps=false` and `LegacyHttpOriginEnabled=true`. This adds the
+   alias and opens the TLS port from CloudFront while preserving the current
+   HTTP origin path.
+5. Push the application change to `main` and approve the production deployment
+   in GitHub. The container runs both HTTP on port 8000 and TLS on 8443 during
+   the migration. The deployment script verifies the certificate chain,
+   hostname, key match, and at least 24 hours of validity before replacing the
+   current container. The workflow checks health through the CloudFront
+   distribution even before public DNS is changed.
+6. Set `EnableOriginHttps=true` on the production stack. After CloudFront
+   reports `Deployed`, verify the custom hostname through CloudFront, then
+   change the Xneelo `chessdesk` CNAME to the stack's `CloudFrontDomainName`
+   output. After the domain works, set `LegacyHttpOriginEnabled=false` to close
+   the old HTTP origin port.
+7. Check the public `/health` endpoint and sign in again. Legacy application
    sessions are invalidated by the expiry migration; business data is retained.
 
 Certificate renewal is an operator responsibility: renew and securely replace
@@ -127,9 +138,9 @@ for testing. ECR rejects tag overwrites. Tags use the UTC
 `YYYYMMDD-HHMMSS-shortsha` format, for example `20260818-163457-83242da`.
 The production deploy uses Systems Manager, waits for the new container's
 health check, and restores the previous container if the new one fails. The
-workflow then checks the public production health endpoint. No SSH key or
-inbound SSH rule is used. A GitHub `production` environment can be configured
-to require approval before deployment if desired.
+workflow checks the production hostname through CloudFront before DNS changes.
+No SSH key or inbound SSH rule is used. The GitHub `production` environment
+requires approval before deployment.
 
 The backend exports OpenTelemetry request and SQLAlchemy spans, HTTP request and
 SQLAlchemy connection metrics only when an OTLP endpoint is configured in the
@@ -217,7 +228,8 @@ only when restoring a separate dev deployment workflow.
      --capabilities CAPABILITY_IAM \
      --parameter-overrides Environment=prod OriginDomainName=origin-prod.example.com \
        ViewerDomainName=example.com \
-       ViewerCertificateArn=arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERTIFICATE_ID
+       ViewerCertificateArn=arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERTIFICATE_ID \
+       EnableOriginHttps=false LegacyHttpOriginEnabled=true
    ```
 
    The template defaults to the VPC, subnet, Availability Zone, CloudFront

@@ -101,12 +101,14 @@ docker run --detach \
   --name chessdesk \
   --restart unless-stopped \
   --publish 8000:8000 \
+  --publish 8443:8443 \
   --volume /data/chessdesk:/data \
   --volume "$tls_dir:/tls:ro" \
   --env DATABASE_URL=sqlite:////data/chessdesk.db \
   --env CHESSDESK_SEED_DEMO=false \
   --env CHESSDESK_COOKIE_SECURE=true \
   --env CHESSDESK_REQUIRE_TLS=true \
+  --env CHESSDESK_TLS_PORT=8443 \
   --env CHESSDESK_TLS_CERTFILE=/tls/fullchain.pem \
   --env CHESSDESK_TLS_KEYFILE=/tls/privkey.pem \
   --env "CHESSDESK_TLS_SERVER_NAME=$origin_name" \

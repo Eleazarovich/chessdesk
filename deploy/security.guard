@@ -4,9 +4,12 @@
 rule origin_tls when Resources.ChessDeskDistribution exists {
     Resources.ChessDeskDistribution.Properties.DistributionConfig {
         Origins[*].CustomOriginConfig {
-            OriginProtocolPolicy == 'https-only'
-            HTTPSPort == 8000
-            OriginSSLProtocols[*] == 'TLSv1.2'
+            OriginProtocolPolicy.'Fn::If'[0] == 'UseOriginHttps'
+            OriginProtocolPolicy.'Fn::If'[1] == 'https-only'
+            OriginProtocolPolicy.'Fn::If'[2] == 'http-only'
+            HTTPSPort == 8443
+            OriginSSLProtocols.'Fn::If'[0] == 'UseOriginHttps'
+            OriginSSLProtocols.'Fn::If'[1][*] == 'TLSv1.2'
         }
         DefaultCacheBehavior.ViewerProtocolPolicy == 'redirect-to-https'
     }

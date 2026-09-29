@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import ssl
 
@@ -23,5 +24,45 @@ def server_options() -> dict:
     return options
 
 
+def tls_port() -> int | None:
+    configured_port = os.getenv("CHESSDESK_TLS_PORT")
+    if configured_port is None:
+        return None
+    try:
+        port = int(configured_port)
+    except ValueError as error:
+        raise ValueError("CHESSDESK_TLS_PORT must be a valid TCP port") from error
+    if not 1 <= port <= 65535 or port == 8000:
+        raise ValueError("CHESSDESK_TLS_PORT must be a valid TCP port other than 8000")
+    return port
+
+
+async def _serve_both_protocols(tls_options: dict) -> None:
+    http_server = uvicorn.Server(uvicorn.Config(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=8000,
+        proxy_headers=False,
+    ))
+    tls_server = uvicorn.Server(uvicorn.Config("backend.main:app", **tls_options))
+
+    async def serve_and_stop_peer(server: uvicorn.Server, peer: uvicorn.Server) -> None:
+        try:
+            await server.serve()
+        finally:
+            peer.should_exit = True
+
+    await asyncio.gather(
+        serve_and_stop_peer(http_server, tls_server),
+        serve_and_stop_peer(tls_server, http_server),
+    )
+
+
 if __name__ == "__main__":
-    uvicorn.run("backend.main:app", **server_options())
+    options = server_options()
+    configured_tls_port = tls_port()
+    if configured_tls_port is None:
+        uvicorn.run("backend.main:app", **options)
+    else:
+        options["port"] = configured_tls_port
+        asyncio.run(_serve_both_protocols(options))

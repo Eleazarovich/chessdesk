@@ -8,8 +8,10 @@ import socket
 import ssl
 
 
-def check_health(port: int = 8000) -> None:
+def check_health(port: int | None = None) -> None:
     certificate = os.getenv("CHESSDESK_TLS_CERTFILE")
+    if port is None:
+        port = int(os.getenv("CHESSDESK_TLS_PORT", "8000")) if certificate else 8000
     if not certificate:
         if os.getenv("CHESSDESK_REQUIRE_TLS", "false").lower() == "true":
             raise ValueError("A TLS certificate is required for the health check")

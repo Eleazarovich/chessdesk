@@ -7,14 +7,14 @@ Metadata:
   AWSToolsMetrics:
     AWSAgentToolkit: aws-cloudformation@3
   com.aws.cloudformation.Context:
-    arch: CloudFront HTTPS -> EC2 HTTPS on port 8000 -> FastAPI + static frontend; SQLite and origin certificates use the existing encrypted EBS volume
+    arch: CloudFront HTTPS -> EC2 HTTPS on port 8443 -> FastAPI + static frontend; HTTP on port 8000 stays during the staged origin migration and SQLite plus certificates use the existing encrypted EBS volume
     must:
-      - EC2 origin ingress stays limited to the AWS-managed CloudFront origin-facing prefix list
+      - EC2 origin ingress stays limited to the AWS-managed CloudFront origin-facing prefix list; remove the legacy HTTP port after HTTPS cutover
       - CloudFront viewer protocol redirects HTTP to HTTPS and disables caching for all app paths
       - CHESSDESK_SEED_DEMO=false and CHESSDESK_COOKIE_SECURE=true remain set in the hosted container
       - Each environment owns a separate encrypted EBS data volume, retained after stack deletion
       - GitHub Actions deploys through Systems Manager; do not add SSH ingress or key pairs
-      - OriginProtocolPolicy is https-only and the certificate covers OriginDomainName.
+      - EnableOriginHttps is true after the TLS listener is deployed and before the viewer DNS record is changed.
     ref:
       - at: deploy/README.md
         has: Dev and production stack names, setup commands, and deployment selection
@@ -35,6 +35,20 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[A-Fa-f0-9-]+$'
     Description: ACM certificate ARN in us-east-1 covering ViewerDomainName; leave both viewer parameters empty to use the CloudFront default domain.
+  EnableOriginHttps:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Keep false while the app is deployed with both listeners; set true to move CloudFront to HTTPS on port 8443.
+  LegacyHttpOriginEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Keep enabled during migration; set false after CloudFront is verified on HTTPS to close the old HTTP origin port.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Default: vpc-05a42e6fd13c2c767
@@ -84,6 +98,8 @@ Rules:
 
 Conditions:
   HasViewerDomainName: !Not [!Equals [!Ref ViewerDomainName, '']]
+  UseOriginHttps: !Equals [!Ref EnableOriginHttps, 'true']
+  KeepLegacyHttpOrigin: !Equals [!Ref LegacyHttpOriginEnabled, 'true']
 
 Resources:
   ChessDeskOriginSecurityGroup:
@@ -99,10 +115,10 @@ Resources:
       GroupDescription: Allow the ChessDesk app origin only from CloudFront.
       VpcId: !Ref VpcId
       SecurityGroupIngress:
-        - Description: CloudFront origin-facing connections to the app.
+        - Description: CloudFront origin ports during migration, narrowed to TLS after cutover.
           IpProtocol: tcp
-          FromPort: 8000
-          ToPort: 8000
+          FromPort: !If [KeepLegacyHttpOrigin, 8000, 8443]
+          ToPort: 8443
           SourcePrefixListId: !Ref CloudFrontOriginPrefixListId
       Tags:
         - Key: Project
@@ -287,7 +303,7 @@ Resources:
         must:
           - Keep HTTPS required for viewers
           - Keep caching disabled and forward cookies, query strings, and required headers
-          - Origin traffic uses HTTPS on port 8000 with certificate and hostname verification.
+          - Final origin traffic uses HTTPS on port 8443 with certificate and hostname verification.
         mutable: review-required
         mutability:
           DistributionConfig: review-required
@@ -305,10 +321,9 @@ Resources:
             DomainName: !Ref OriginDomainName
             CustomOriginConfig:
               HTTPPort: 8000
-              HTTPSPort: 8000
-              OriginProtocolPolicy: https-only
-              OriginSSLProtocols:
-                - TLSv1.2
+              HTTPSPort: 8443
+              OriginProtocolPolicy: !If [UseOriginHttps, https-only, http-only]
+              OriginSSLProtocols: !If [UseOriginHttps, [TLSv1.2], !Ref AWS::NoValue]
         DefaultCacheBehavior:
           AllowedMethods:
             - DELETE
@@ -356,6 +371,9 @@ Outputs:
       - HasViewerDomainName
       - !Sub 'https://${ViewerDomainName}'
       - !Sub 'https://${ChessDeskDistribution.DomainName}'
+  CloudFrontDomainName:
+    Description: CloudFront distribution hostname; use as the viewer CNAME target after the alias is deployed and verified.
+    Value: !GetAtt ChessDeskDistribution.DomainName
   InstanceId:
     Description: EC2 instance hosting this environment; use the EC2 console output to inspect first-boot logs.
     Value: !Ref ChessDeskInstance
