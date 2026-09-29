@@ -24,7 +24,17 @@ Parameters:
   OriginDomainName:
     Type: String
     AllowedPattern: '^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
-    Description: Hostname you control, resolving to this EC2 instance, with a publicly trusted certificate installed in /data/chessdesk-tls on EC2.
+    Description: Origin hostname resolving to this EC2 instance, with a publicly trusted certificate installed in /data/chessdesk-tls on EC2. Keep it separate from the optional CloudFront viewer hostname.
+  ViewerDomainName:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
+    Description: Optional public hostname for browsers; its DNS should point to this CloudFront distribution after the distribution is deployed.
+  ViewerCertificateArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[A-Fa-f0-9-]+$'
+    Description: ACM certificate ARN in us-east-1 covering ViewerDomainName; leave both viewer parameters empty to use the CloudFront default domain.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Default: vpc-05a42e6fd13c2c767
@@ -58,6 +68,22 @@ Parameters:
       - dev
       - prod
     Description: Environment name recorded in resource tags for this independent stack.
+
+Rules:
+  ViewerDomainAndCertificateTogether:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::And:
+                - !Equals [!Ref ViewerDomainName, '']
+                - !Equals [!Ref ViewerCertificateArn, '']
+            - Fn::And:
+                - !Not [!Equals [!Ref ViewerDomainName, '']]
+                - !Not [!Equals [!Ref ViewerCertificateArn, '']]
+        AssertDescription: Set both ViewerDomainName and ViewerCertificateArn, or leave both empty.
+
+Conditions:
+  HasViewerDomainName: !Not [!Equals [!Ref ViewerDomainName, '']]
 
 Resources:
   ChessDeskOriginSecurityGroup:
@@ -273,6 +299,7 @@ Resources:
         HttpVersion: http2and3
         IPV6Enabled: false
         PriceClass: PriceClass_200
+        Aliases: !If [HasViewerDomainName, [!Ref ViewerDomainName], !Ref AWS::NoValue]
         Origins:
           - Id: ChessDeskOrigin
             DomainName: !Ref OriginDomainName
@@ -304,7 +331,12 @@ Resources:
           GeoRestriction:
             RestrictionType: none
         ViewerCertificate:
-          CloudFrontDefaultCertificate: true
+          !If
+            - HasViewerDomainName
+            - AcmCertificateArn: !Ref ViewerCertificateArn
+              SslSupportMethod: sni-only
+              MinimumProtocolVersion: TLSv1.2_2021
+            - CloudFrontDefaultCertificate: true
       Tags:
         - Key: Project
           Value: ChessDesk
@@ -320,7 +352,10 @@ Outputs:
     Value: !GetAtt ChessDeskInstance.PublicDnsName
   SiteUrl:
     Description: HTTPS URL for this ChessDesk environment (CloudFront distribution).
-    Value: !Sub 'https://${ChessDeskDistribution.DomainName}'
+    Value: !If
+      - HasViewerDomainName
+      - !Sub 'https://${ViewerDomainName}'
+      - !Sub 'https://${ChessDeskDistribution.DomainName}'
   InstanceId:
     Description: EC2 instance hosting this environment; use the EC2 console output to inspect first-boot logs.
     Value: !Ref ChessDeskInstance

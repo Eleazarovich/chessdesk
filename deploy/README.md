@@ -14,9 +14,29 @@ groups, distributions, and databases are separate.
 Each stack has a distinct CloudFront HTTPS URL. Deleting either stack retains
 that stack's data volume, which remains billable until separately deleted.
 
-Current viewer URLs are <https://d1bqcmvdafa6rq.cloudfront.net> (dev) and
-<https://d2mo1cbaii74n0.cloudfront.net> (production). Origin TLS does not require
-changing these public addresses.
+The default viewer URLs are <https://d1bqcmvdafa6rq.cloudfront.net> (dev) and
+<https://d2mo1cbaii74n0.cloudfront.net> (production). A stack can use a custom
+viewer hostname with an ACM certificate while retaining the CloudFront URL.
+
+## Custom viewer domains
+
+Set `ViewerDomainName` and `ViewerCertificateArn` together on a stack. The ACM
+certificate must cover the viewer hostname and be in `us-east-1`. CloudFront
+then serves HTTPS for that name, and the `SiteUrl` output reports the custom
+URL. Leave both parameters empty to keep the CloudFront-provided URL.
+
+Keep the browser-facing name separate from `OriginDomainName`. For example,
+dev can use `dev.chessdesk.plynera.co.za` as its viewer name and
+`origin-dev.chessdesk.plynera.co.za` as its origin name. Point the origin CNAME
+to the EC2 public DNS name and install a trusted origin certificate covering
+that origin name. Point the viewer CNAME to the CloudFront distribution domain
+only after the alias and viewer certificate have been deployed. Using the same
+hostname for both makes CloudFront resolve its origin back to itself.
+
+For Xneelo DNS, ACM supplies a CNAME for certificate validation. Keep that
+record in place to allow ACM to renew the certificate. Xneelo requires a final
+period on CNAME destinations. Set the viewer CNAME destination to the stack's
+CloudFront distribution domain, with that final period.
 
 ## Security upgrade and origin certificates
 
@@ -34,14 +54,11 @@ certificate cannot be installed on EC2, and CloudFront does not accept a
 self-signed origin certificate. An ACME certificate can be free when an
 appropriate domain is already available; obtain approval before any purchase.
 
-The owner currently uses only the AWS viewer addresses and has no custom
-domain. Origin TLS rollout therefore remains pending. A domain purchase is
-optional: a free subdomain from [DuckDNS](https://www.duckdns.org/about.jsp)
-and a free [Let's Encrypt certificate](https://letsencrypt.org/getting-started/)
-can provide the origin hostname and certificate while retaining the public
-CloudFront addresses. This requires a DuckDNS account, DNS setup, and
-certificate renewal, and adds a dependency on that third-party DNS service.
-No account, DNS record, or public certificate is created by these code changes.
+Custom viewer domains are optional. The existing domain can also provide the
+origin hostname, but keep the origin and viewer DNS names separate. A
+[Let's Encrypt certificate](https://letsencrypt.org/getting-started/) can
+provide a free origin certificate; DNS validation requires adding a temporary
+TXT record and certificate renewal remains an operator responsibility.
 
 Before deploying the updated application:
 
@@ -49,7 +66,9 @@ Before deploying the updated application:
    (`OriginDnsTarget` after the template update; available from EC2 beforehand).
    A DNS A record pointing to the instance's public IPv4 address also works;
    use that option with DuckDNS and update it if the instance's IP changes.
-   Do not point the origin hostname at the CloudFront viewer URL.
+   Keep this origin hostname separate from the viewer hostname. The viewer
+   hostname's CNAME should point to CloudFront's distribution domain after
+   `ViewerDomainName` and its ACM certificate have been deployed.
 2. Obtain a certificate, preferably using DNS validation so no public HTTP or
    SSH ingress needs to be opened. Transfer its PEM full certificate chain and
    unencrypted private key through an approved secure operator channel to the
@@ -175,14 +194,18 @@ legacy `AWS_STACK_NAME` variable remains a fallback for dev.
      --stack-name chessdesk-ec2 \
      --region af-south-1 \
      --capabilities CAPABILITY_IAM \
-     --parameter-overrides Environment=dev OriginDomainName=origin-dev.example.com
+     --parameter-overrides Environment=dev OriginDomainName=origin-dev.example.com \
+       ViewerDomainName=dev.example.com \
+       ViewerCertificateArn=arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERTIFICATE_ID
 
    aws cloudformation deploy \
      --template-file deploy/chessdesk-ec2.yaml \
      --stack-name chessdesk-ec2-prod \
      --region af-south-1 \
      --capabilities CAPABILITY_IAM \
-     --parameter-overrides Environment=prod OriginDomainName=origin-prod.example.com
+     --parameter-overrides Environment=prod OriginDomainName=origin-prod.example.com \
+       ViewerDomainName=example.com \
+       ViewerCertificateArn=arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERTIFICATE_ID
    ```
 
    The template defaults to the VPC, subnet, Availability Zone, CloudFront
