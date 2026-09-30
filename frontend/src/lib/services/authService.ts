@@ -34,9 +34,12 @@ export const authService = {
   },
 
   async signUp(data: SignUpData): Promise<AuthUser> {
-    const response = await apiClient.post<AuthResponse>('/auth/signup', data);
-    apiClient.setAccessToken(response.access_token);
-    return storeUser({ id: response.id, email: response.email, name: response.name });
+    const user = await apiClient.post<AuthUser>('/auth/signup', data);
+    apiClient.clearAccessToken();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+    return user;
   },
 
   async logout(): Promise<void> {

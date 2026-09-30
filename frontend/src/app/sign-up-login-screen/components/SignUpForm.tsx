@@ -13,7 +13,7 @@ interface SignUpFormData {
 }
 
 interface SignUpFormProps {
-  onSuccess: () => void;
+  onSuccess: (email: string) => void;
 }
 
 export default function SignUpForm({ onSuccess }: SignUpFormProps) {
@@ -30,7 +30,7 @@ export default function SignUpForm({ onSuccess }: SignUpFormProps) {
     setServerError('');
     try {
       await authService.signUp({ name: data.name, email: data.email, password: data.password });
-      onSuccess();
+      onSuccess(data.email);
     } catch (err: unknown) {
       setServerError(err instanceof Error ? err.message : 'Failed to create account. Please try again.');
     } finally {

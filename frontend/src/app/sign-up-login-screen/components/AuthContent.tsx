@@ -4,13 +4,13 @@ import LoginForm from './LoginForm';
 import SignUpForm from './SignUpForm';
 import ForgotPasswordForm from './ForgotPasswordForm';
 import AppLogo from '@/components/ui/AppLogo';
-import { useRouter } from 'next/navigation';
 
 type AuthView = 'login' | 'signup' | 'forgot';
 
 export default function AuthContent() {
-  const router = useRouter();
   const [view, setView] = useState<AuthView>('login');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   return (
     <div
@@ -41,13 +41,19 @@ export default function AuthContent() {
           {view !== 'forgot' && (
             <div className="flex border-b" style={{ borderColor: 'var(--border)' }}>
               <button
-                onClick={() => setView('login')}
+                onClick={() => {
+                  setView('login');
+                  setSuccessMessage('');
+                }}
                 className={`flex-1 py-3.5 text-sm font-medium transition-all duration-150 ${view === 'login' ? 'text-primary border-b-2 border-primary' : 'text-foreground-muted hover:text-foreground'}`}
               >
                 Log In
               </button>
               <button
-                onClick={() => setView('signup')}
+                onClick={() => {
+                  setView('signup');
+                  setSuccessMessage('');
+                }}
                 className={`flex-1 py-3.5 text-sm font-medium transition-all duration-150 ${view === 'signup' ? 'text-primary border-b-2 border-primary' : 'text-foreground-muted hover:text-foreground'}`}
               >
                 Sign Up
@@ -56,8 +62,33 @@ export default function AuthContent() {
           )}
 
           <div className="p-6">
-            {view === 'login' && <LoginForm onForgotPassword={() => setView('forgot')} />}
-            {view === 'signup' && <SignUpForm onSuccess={() => router.push('/dashboard')} />}
+            {successMessage && (
+              <div
+                role="status"
+                className="mb-4 px-3 py-2.5 rounded-lg text-sm"
+                style={{ background: 'var(--success-muted)', border: '1px solid var(--success)', color: 'var(--success)' }}
+              >
+                {successMessage}
+              </div>
+            )}
+            {view === 'login' && (
+              <LoginForm
+                initialEmail={signupEmail}
+                onForgotPassword={() => {
+                  setSuccessMessage('');
+                  setView('forgot');
+                }}
+              />
+            )}
+            {view === 'signup' && (
+              <SignUpForm
+                onSuccess={(email) => {
+                  setSignupEmail(email);
+                  setSuccessMessage('Your account is ready. Sign in to continue.');
+                  setView('login');
+                }}
+              />
+            )}
             {view === 'forgot' && <ForgotPasswordForm onBack={() => setView('login')} />}
           </div>
         </div>

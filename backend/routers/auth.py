@@ -69,8 +69,8 @@ def login(payload: LoginRequest, request: Request, response: Response) -> AuthRe
     return _auth_response(record, response)
 
 
-@router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED, operation_id="signUp")
-def signup(payload: SignUpRequest, request: Request, response: Response) -> AuthResponse:
+@router.post("/signup", response_model=AuthUser, status_code=status.HTTP_201_CREATED, operation_id="signUp")
+def signup(payload: SignUpRequest, request: Request, response: Response) -> AuthUser:
     enforce_auth_limits(request, str(payload.email), "signup")
     store = get_store()
     if store.user_by_email(str(payload.email)) is not None:
@@ -82,7 +82,22 @@ def signup(payload: SignUpRequest, request: Request, response: Response) -> Auth
         id=store.next_id("coach"), email=payload.email, name=payload.name,
     )
     store.add_user(user, hash_password(payload.password))
-    return _auth_response(store.user_by_id(user.id), response)  # type: ignore[arg-type]
+
+    # Account creation does not establish a session. Clear any credentials that
+    # were already attached to this browser so the new account must log in.
+    bearer_or_cookie = token_from_request(request, None)
+    cookie_token = request.cookies.get(SESSION_COOKIE)
+    revoke_token(bearer_or_cookie)
+    if cookie_token != bearer_or_cookie:
+        revoke_token(cookie_token)
+    response.delete_cookie(
+        SESSION_COOKIE,
+        httponly=True,
+        samesite="lax",
+        secure=COOKIE_SECURE,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return user
 
 
 @router.post("/password/reset", status_code=status.HTTP_204_NO_CONTENT, operation_id="resetPassword")

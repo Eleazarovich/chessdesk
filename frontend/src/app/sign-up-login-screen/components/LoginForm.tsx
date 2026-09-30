@@ -12,17 +12,18 @@ interface LoginFormData {
 }
 
 interface LoginFormProps {
+  initialEmail?: string;
   onForgotPassword: () => void;
 }
 
-export default function LoginForm({ onForgotPassword }: LoginFormProps) {
+export default function LoginForm({ initialEmail = '', onForgotPassword }: LoginFormProps) {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginFormData>({
-    defaultValues: { email: '', password: '', remember: false },
+    defaultValues: { email: initialEmail, password: '', remember: false },
   });
 
   const onSubmit = async (data: LoginFormData) => {

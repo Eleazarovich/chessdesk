@@ -679,8 +679,8 @@ The MVP requires simple coach authentication.
 
 Required:
 
-- Sign up
-- Log in
+- Create an account
+- Log in before using the platform
 - Log out
 - Password reset
 

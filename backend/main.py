@@ -115,7 +115,7 @@ def custom_openapi() -> dict:
         "type": "apiKey",
         "in": "cookie",
         "name": "chessdesk_session",
-        "description": "HttpOnly session cookie established by login or signup.",
+        "description": "HttpOnly session cookie established by login.",
     }
     for path_item in schema.get("paths", {}).values():
         for operation in path_item.values():

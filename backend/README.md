@@ -98,6 +98,8 @@ the credentials configured for your PostgreSQL instance.
 
 Login returns an `access_token` for `Authorization: Bearer <token>` requests
 and also sets the `chessdesk_session` HttpOnly cookie.
+Signup creates an account without issuing a session; the new coach must log in
+before accessing the platform.
 
 Sessions expire after seven days on the server as well as in the browser.
 Only a SHA-256 digest of each token is stored. On the first start after the
