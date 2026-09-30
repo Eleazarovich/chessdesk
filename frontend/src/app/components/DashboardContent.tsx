@@ -10,6 +10,8 @@ import RevenueChart from './RevenueChart';
 import SessionsBarChart from './SessionsBarChart';
 import UpcomingSessionsList from './UpcomingSessionsList';
 import ActivityStats from './ActivityStats';
+import type { ActivityDetailType } from './ActivityStats';
+import ActivityDetailModal from './ActivityDetailModal';
 import { KpiCardSkeleton, ChartSkeleton, SkeletonBlock } from '@/components/ui/LoadingSkeleton';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 
@@ -26,6 +28,7 @@ export default function DashboardContent() {
   const [error, setError] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState('ChessDesk');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [activityDetail, setActivityDetail] = useState<ActivityDetailType | null>(null);
 
   const loadDashboard = useCallback(async () => {
     const coachId = authService.getCurrentCoachId();
@@ -130,7 +133,7 @@ export default function DashboardContent() {
               {Array.from({ length: 5 }).map((_, i) => <SkeletonBlock key={`act-skel-${i}`} className="h-10 w-full" />)}
             </div>
           ) : data ? (
-            <ActivityStats activity={data.activity} />
+            <ActivityStats activity={data.activity} onSelect={setActivityDetail} />
           ) : null}
         </div>
         <div className="xl:col-span-2">
@@ -143,6 +146,12 @@ export default function DashboardContent() {
           ) : null}
         </div>
       </div>
+
+      <ActivityDetailModal
+        activity={activityDetail}
+        filter={filter}
+        onClose={() => setActivityDetail(null)}
+      />
     </div>
   );
 }
