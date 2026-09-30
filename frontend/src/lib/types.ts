@@ -59,6 +59,13 @@ export interface Session {
   notes: string;
 }
 
+export type SessionHistoryDirection = 'previous' | 'upcoming';
+
+export interface ClientSessionPage {
+  sessions: Session[];
+  has_more: boolean;
+}
+
 export interface Invoice {
   id: string;
   coach_id: string;

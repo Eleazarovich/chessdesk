@@ -1,9 +1,26 @@
-import type { Session, SessionStatus } from '../types';
+import type { ClientSessionPage, Session, SessionHistoryDirection, SessionStatus } from '../types';
 import { ApiError, apiClient } from '../api';
 
 export const sessionService = {
   async getSessions(coachId: string): Promise<Session[]> {
     return apiClient.get<Session[]>('/sessions', { coach_id: coachId });
+  },
+
+  async getClientSessions(
+    clientId: string,
+    direction: SessionHistoryDirection,
+    asOfDate: string,
+    asOfTime: string,
+    offset = 0,
+    limit = 5,
+  ): Promise<ClientSessionPage> {
+    return apiClient.get<ClientSessionPage>(`/clients/${clientId}/sessions`, {
+      direction,
+      as_of_date: asOfDate,
+      as_of_time: asOfTime,
+      offset: String(offset),
+      limit: String(limit),
+    });
   },
 
   async getSession(id: string): Promise<Session | null> {

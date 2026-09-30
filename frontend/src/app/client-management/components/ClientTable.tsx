@@ -10,6 +10,7 @@ import Toggle from '@/components/ui/Toggle';
 interface ClientTableProps {
   clients: ClientWithDetails[];
   onRefresh: () => void;
+  onViewClient: (client: ClientWithDetails) => void;
 }
 
 function formatZAR(amount: number): string {
@@ -159,7 +160,7 @@ function EditClientModal({ client, onClose, onSuccess }: EditClientModalProps) {
   );
 }
 
-export default function ClientTable({ clients, onRefresh }: ClientTableProps) {
+export default function ClientTable({ clients, onRefresh, onViewClient }: ClientTableProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingClient, setEditingClient] = useState<ClientWithDetails | null>(null);
@@ -222,7 +223,15 @@ export default function ClientTable({ clients, onRefresh }: ClientTableProps) {
                       {client.display_name.split(' ').map(w => w[0]).slice(0, 2).join('')}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate max-w-[140px]" style={{ color: 'var(--foreground)' }}>{client.display_name}</p>
+                      <button
+                        type="button"
+                        onClick={() => onViewClient(client)}
+                        className="text-sm font-medium truncate max-w-[140px] text-left hover:underline focus-visible:underline"
+                        style={{ color: 'var(--foreground)' }}
+                        aria-label={`View sessions for ${client.display_name}`}
+                      >
+                        {client.display_name}
+                      </button>
                       {client.individual_details?.parent_name && (
                         <p className="text-xs truncate max-w-[140px]" style={{ color: 'var(--foreground-subtle)' }}>
                           {client.individual_details.parent_name}

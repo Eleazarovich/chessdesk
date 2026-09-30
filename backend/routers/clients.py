@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from datetime import date as Date
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..auth import get_current_user
 from ..models import (
     Client,
     ClientCreateRequest,
+    ClientSessionPage,
     ClientUpdateRequest,
     ClientWithDetails,
     IndividualStudentDetails,
@@ -17,6 +21,8 @@ from ..store import UserRecord, get_store
 from .common import ensure_client, ensure_coach
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
+
+SESSION_TIME_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
 def enrich_client(client: Client) -> ClientWithDetails:
@@ -97,6 +103,32 @@ async def get_client(
     current_user: UserRecord = Depends(get_current_user),
 ) -> ClientWithDetails:
     return enrich_client(ensure_client(clientId, current_user))
+
+
+@router.get(
+    "/{clientId}/sessions",
+    response_model=ClientSessionPage,
+    operation_id="getClientSessions",
+)
+async def get_client_sessions(
+    clientId: str,
+    direction: Literal["previous", "upcoming"],
+    as_of_date: Date,
+    as_of_time: str = Query(pattern=SESSION_TIME_PATTERN),
+    limit: int = Query(default=5, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    current_user: UserRecord = Depends(get_current_user),
+) -> ClientSessionPage:
+    client = ensure_client(clientId, current_user)
+    sessions, has_more = get_store().client_session_page(
+        client.id,
+        direction=direction,
+        as_of_date=as_of_date,
+        as_of_time=as_of_time,
+        limit=limit,
+        offset=offset,
+    )
+    return ClientSessionPage(sessions=sessions, has_more=has_more)
 
 
 @router.patch("/{clientId}", response_model=Client, operation_id="updateClient")

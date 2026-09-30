@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -195,6 +196,17 @@ def test_group_session_is_shared_by_students_and_can_be_invoiced_per_student() -
     )
     assert invoice.status_code == 201, invoice.text
 
+    second_invoice = request(
+        "POST", "/api/v1/invoices", headers=auth(token),
+        json={
+            "coach_id": "coach-001", "client_id": "client-001", "invoice_date": "2026-09-20",
+            "due_date": "2026-10-04", "amount": 300, "description": "Group session",
+            "status": "unpaid", "paid_date": None, "payment_method": None,
+            "payment_reference": "", "notes": "", "session_ids": [group_session["id"]],
+        },
+    )
+    assert second_invoice.status_code == 201, second_invoice.text
+
     moved = request(
         "PATCH", f"/api/v1/sessions/{group_session['id']}", headers=auth(token),
         json={"participant_ids": ["client-001", "client-003"]},
@@ -218,6 +230,70 @@ def test_group_session_rejects_school_clients_mixed_with_students() -> None:
     )
     assert created.status_code == 400
     assert created.json()["code"] == "INVALID_GROUP_PARTICIPANTS"
+
+
+def test_client_session_history_paginates_and_includes_shared_group_sessions() -> None:
+    token = login()
+    as_of_date = date(2099, 1, 1)
+    group_date = as_of_date - timedelta(days=2)
+    individual_date = as_of_date - timedelta(days=1)
+    group_response = request(
+        "POST", "/api/v1/sessions", headers=auth(token),
+        json={
+            "coach_id": "coach-001", "client_id": "client-001",
+            "participant_ids": ["client-001", "client-002"], "date": group_date.isoformat(),
+            "start_time": "15:00", "planned_duration": 60, "actual_duration": None,
+            "session_type": "online", "location": "", "status": "scheduled", "notes": "Shared tactics",
+        },
+    )
+    assert group_response.status_code == 201, group_response.text
+    group_session = group_response.json()
+
+    later_response = request(
+        "POST", "/api/v1/sessions", headers=auth(token),
+        json={
+            "coach_id": "coach-001", "client_id": "client-001", "date": individual_date.isoformat(),
+            "start_time": "10:00", "planned_duration": 60, "actual_duration": None,
+            "session_type": "online", "location": "", "status": "scheduled", "notes": "One-to-one",
+        },
+    )
+    assert later_response.status_code == 201, later_response.text
+
+    params = {
+        "direction": "previous", "as_of_date": as_of_date.isoformat(),
+        "as_of_time": "00:00", "limit": 1, "offset": 0,
+    }
+    first_page = request(
+        "GET", "/api/v1/clients/client-001/sessions", headers=auth(token), params=params,
+    )
+    assert first_page.status_code == 200, first_page.text
+    assert [session["id"] for session in first_page.json()["sessions"]] == [later_response.json()["id"]]
+    assert first_page.json()["has_more"] is True
+
+    second_page = request(
+        "GET", "/api/v1/clients/client-001/sessions", headers=auth(token),
+        params={**params, "offset": 1},
+    )
+    assert [session["id"] for session in second_page.json()["sessions"]] == [group_session["id"]]
+    assert second_page.json()["has_more"] is True
+
+    shared_client_history = request(
+        "GET", "/api/v1/clients/client-002/sessions", headers=auth(token),
+        params={**params, "limit": 50},
+    )
+    assert shared_client_history.status_code == 200, shared_client_history.text
+    matching_group_sessions = [
+        session for session in shared_client_history.json()["sessions"]
+        if session["id"] == group_session["id"]
+    ]
+    assert len(matching_group_sessions) == 1
+    assert matching_group_sessions[0]["participant_ids"] == ["client-001", "client-002"]
+
+    invalid_time = request(
+        "GET", "/api/v1/clients/client-001/sessions", headers=auth(token),
+        params={**params, "as_of_time": "25:00"},
+    )
+    assert invalid_time.status_code == 400
 
 
 def test_invoice_and_expense_routes_and_ownership() -> None:

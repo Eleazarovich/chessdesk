@@ -1,10 +1,12 @@
 'use client';
 import React, { useState, useEffect, useMemo } from 'react';
-import type { ClientWithDetails, ClientType } from '@/lib/types';
+import type { ClientWithDetails, ClientType, Session } from '@/lib/types';
 import { clientService } from '@/lib/services/clientService';
 import { authService } from '@/lib/services/authService';
 import ClientTable from './ClientTable';
 import AddClientModal from './AddClientModal';
+import ClientSessionsModal from './ClientSessionsModal';
+import SessionModal from '@/app/components/SessionModal';
 import { TableRowSkeleton } from '@/components/ui/LoadingSkeleton';
 import EmptyState from '@/components/ui/EmptyState';
 import { Users, Plus, Search, AlertTriangle, GraduationCap, Building2, UserCheck } from 'lucide-react';
@@ -19,6 +21,11 @@ export default function ClientManagementContent() {
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
   const [activeOnly, setActiveOnly] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [viewingClient, setViewingClient] = useState<ClientWithDetails | null>(null);
+  const [sessionContext, setSessionContext] = useState<{
+    client: ClientWithDetails;
+    template?: Session;
+  } | null>(null);
 
   const loadClients = () => {
     const coachId = authService.getCurrentCoachId();
@@ -158,7 +165,7 @@ export default function ClientManagementContent() {
             action={!search && typeFilter === 'all' ? { label: 'Add First Client', onClick: () => setAddModalOpen(true) } : undefined}
           />
         ) : (
-          <ClientTable clients={filtered} onRefresh={loadClients} />
+          <ClientTable clients={filtered} onRefresh={loadClients} onViewClient={setViewingClient} />
         )}
       </div>
 
@@ -174,6 +181,31 @@ export default function ClientManagementContent() {
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
         onSuccess={() => { setAddModalOpen(false); loadClients(); }}
+      />
+
+      {viewingClient && (
+        <ClientSessionsModal
+          key={viewingClient.id}
+          client={viewingClient}
+          clients={clients}
+          onClose={() => setViewingClient(null)}
+          onSchedule={template => {
+            setSessionContext({ client: viewingClient, template });
+            setViewingClient(null);
+          }}
+        />
+      )}
+
+      <SessionModal
+        open={sessionContext !== null}
+        onClose={() => setSessionContext(null)}
+        onSuccess={() => {
+          setSessionContext(null);
+          loadClients();
+        }}
+        clients={clients}
+        initialClientId={sessionContext?.client.id}
+        templateSession={sessionContext?.template}
       />
     </div>
   );

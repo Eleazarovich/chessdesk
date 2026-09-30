@@ -8,9 +8,12 @@ import { isCurrentOrFutureDate, isCurrentOrFutureDateTime } from '@/lib/dateUtil
 import DateTimeInput from '@/components/ui/DateTimeInput';
 import Modal from '@/components/ui/Modal';
 
+type SessionCategory = 'students' | 'school';
+
 interface SessionFormData {
-  client_id: string;
-  participant_ids: string[];
+  category: SessionCategory | '';
+  student_ids: string[];
+  school_id: string;
   date: string;
   start_time: string;
   planned_duration: number;
@@ -26,66 +29,90 @@ interface SessionModalProps {
   onSuccess: (session: Session) => void;
   clients: ClientWithDetails[];
   editSession?: Session | null;
+  initialClientId?: string;
+  templateSession?: Session | null;
 }
 
-function initialForm(session?: Session | null): SessionFormData {
-  const participantIds = session?.participant_ids?.length
-    ? session.participant_ids
-    : session?.client_id ? [session.client_id] : [];
+function initialForm(
+  session: Session | null | undefined,
+  templateSession: Session | null | undefined,
+  initialClientId: string | undefined,
+  clients: ClientWithDetails[],
+): SessionFormData {
+  const source = session ?? templateSession;
+  const clientId = source?.client_id ?? initialClientId ?? '';
+  const participantIds = source?.participant_ids?.length ? source.participant_ids : clientId ? [clientId] : [];
+  const selectedClient = clients.find(client => client.id === clientId);
+  const category: SessionCategory | '' = !clientId
+    ? ''
+    : selectedClient?.client_type === 'school' ? 'school' : 'students';
+
   return {
-    client_id: participantIds[0] ?? '',
-    participant_ids: participantIds,
+    category,
+    student_ids: category === 'students' ? participantIds : [],
+    school_id: category === 'school' ? clientId : '',
     date: session?.date ?? '',
-    start_time: session?.start_time ?? '',
-    planned_duration: session?.planned_duration ?? 60,
-    session_type: session?.session_type ?? 'in-person',
-    location: session?.location ?? '',
+    start_time: source?.start_time ?? '',
+    planned_duration: source?.planned_duration ?? 60,
+    session_type: source?.session_type ?? 'in-person',
+    location: source?.location ?? '',
     status: session?.status ?? 'scheduled',
-    notes: session?.notes ?? '',
+    notes: source?.notes ?? '',
   };
 }
 
-export default function SessionModal({ open, onClose, onSuccess, clients, editSession }: SessionModalProps) {
+export default function SessionModal({
+  open,
+  onClose,
+  onSuccess,
+  clients,
+  editSession,
+  initialClientId,
+  templateSession,
+}: SessionModalProps) {
   const isEdit = !!editSession;
-  const [form, setForm] = useState<SessionFormData>(() => initialForm(editSession));
+  const [form, setForm] = useState<SessionFormData>(() => initialForm(editSession, templateSession, initialClientId, clients));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const students = useMemo(() => clients.filter(client => client.client_type === 'individual'), [clients]);
   const schools = useMemo(() => clients.filter(client => client.client_type === 'school'), [clients]);
-  const selectedSchoolId = form.participant_ids.find(id => schools.some(school => school.id === id)) ?? '';
 
   useEffect(() => {
     if (open) {
-      setForm(initialForm(editSession));
+      setForm(initialForm(editSession, templateSession, initialClientId, clients));
       setError('');
     }
-  }, [open, editSession]);
+  }, [open, editSession, templateSession, initialClientId, clients]);
 
   const set = (key: keyof SessionFormData, value: string | number) => {
     setForm(current => ({ ...current, [key]: value }));
   };
 
-  const setStudentSelected = (studentId: string, selected: boolean) => {
-    setForm(current => {
-      const selectedStudents = current.participant_ids.filter(id => students.some(student => student.id === id));
-      const nextStudents = selected
-        ? [...selectedStudents, studentId]
-        : selectedStudents.filter(id => id !== studentId);
-      return { ...current, client_id: nextStudents[0] ?? '', participant_ids: nextStudents };
-    });
-  };
-
-  const setSchoolSelected = (schoolId: string) => {
+  const setCategory = (category: SessionCategory) => {
     setForm(current => ({
       ...current,
-      client_id: schoolId,
-      participant_ids: schoolId ? [schoolId] : [],
+      category,
+      student_ids: [],
+      school_id: '',
     }));
   };
 
+  const setStudentSelected = (studentId: string, selected: boolean) => {
+    setForm(current => {
+      const studentIds = selected
+        ? [...current.student_ids.filter(id => id !== studentId), studentId]
+        : current.student_ids.filter(id => id !== studentId);
+      return { ...current, student_ids: studentIds };
+    });
+  };
+
   const handleSave = async () => {
-    if (!form.participant_ids.length || !form.date || !form.start_time) {
-      setError('Select at least one student or school, then enter a date and start time.');
+    const clientIds = form.category === 'students'
+      ? form.student_ids
+      : form.category === 'school' && form.school_id ? [form.school_id] : [];
+    if (!clientIds.length || !form.date || !form.start_time) {
+      const targetError = form.category === 'students' ? 'at least one student' : form.category === 'school' ? 'a school' : 'Students or School';
+      setError(`Choose ${targetError}, then enter a date and start time.`);
       return;
     }
     if (!isCurrentOrFutureDate(form.date)) {
@@ -100,18 +127,33 @@ export default function SessionModal({ open, onClose, onSuccess, clients, editSe
     setSaving(true);
     setError('');
     try {
-      const data = {
-        ...form,
-        client_id: form.participant_ids[0],
-        participant_ids: form.participant_ids,
+      const commonData = {
+        date: form.date,
+        start_time: form.start_time,
+        planned_duration: form.planned_duration,
+        session_type: form.session_type,
+        location: form.location,
+        status: form.status,
+        notes: form.notes,
       };
       let result: Session;
       if (isEdit && editSession) {
-        result = await sessionService.updateSession(editSession.id, data);
+        const updated = await sessionService.updateSession(editSession.id, {
+          ...commonData,
+          client_id: clientIds[0],
+          participant_ids: clientIds,
+        });
+        result = updated;
       } else {
         const coachId = authService.getCurrentCoachId();
         if (!coachId) throw new Error('Authentication required');
-        result = await sessionService.createSession({ ...data, coach_id: coachId, actual_duration: null });
+        result = await sessionService.createSession({
+          ...commonData,
+          actual_duration: null,
+          coach_id: coachId,
+          client_id: clientIds[0],
+          participant_ids: clientIds,
+        });
       }
       onSuccess(result);
     } catch {
@@ -126,6 +168,7 @@ export default function SessionModal({ open, onClose, onSuccess, clients, editSe
       open={open}
       onClose={onClose}
       title={isEdit ? 'Edit Session' : 'New Session'}
+      subtitle={templateSession && !isEdit ? `Details copied from ${templateSession.date}. Choose a new date.` : undefined}
       size="md"
       footer={(
         <>
@@ -140,31 +183,54 @@ export default function SessionModal({ open, onClose, onSuccess, clients, editSe
         {error && <div role="alert" className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--destructive-muted)', border: '1px solid var(--destructive)', color: 'var(--destructive)' }}>{error}</div>}
 
         <fieldset className="space-y-2">
-          <legend className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Students *</legend>
-          <p className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>Select one or more students for this session.</p>
-          <div className="max-h-40 overflow-y-auto rounded-lg border divide-y" style={{ borderColor: 'var(--border)' }}>
-            {students.length ? students.map(student => (
-              <label key={student.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer text-sm" style={{ color: 'var(--foreground)' }}>
-                <input
-                  type="checkbox"
-                  checked={form.participant_ids.includes(student.id)}
-                  onChange={event => setStudentSelected(student.id, event.target.checked)}
-                  className="rounded border-gray-500 text-primary focus:ring-primary"
-                />
-                <span>{student.display_name}</span>
-              </label>
-            )) : <p className="px-3 py-3 text-sm" style={{ color: 'var(--foreground-subtle)' }}>No students available.</p>}
+          <legend className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Session for *</legend>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Session category">
+            {(['students', 'school'] as const).map(category => (
+              <button
+                key={category}
+                type="button"
+                aria-pressed={form.category === category}
+                onClick={() => setCategory(category)}
+                className={`px-3 py-2 rounded-lg border text-sm font-medium ${form.category === category ? 'btn-primary border-primary' : 'btn-ghost'}`}
+                style={form.category === category ? undefined : { borderColor: 'var(--border)', color: 'var(--foreground-muted)' }}
+              >
+                {category === 'students' ? 'Students' : 'School'}
+              </button>
+            ))}
           </div>
         </fieldset>
 
-        {schools.length > 0 && (
+        {form.category === 'students' ? (
+          <fieldset className="space-y-2">
+            <legend className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Select {isEdit ? 'student' : 'students'} *</legend>
+            <p className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>
+              {isEdit ? 'Choose one student for this session.' : 'Choose one student or several for a group session.'}
+            </p>
+            <div className="max-h-40 overflow-y-auto rounded-lg border divide-y" style={{ borderColor: 'var(--border)' }}>
+              {students.length ? students.map(student => (
+                <label key={student.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer text-sm" style={{ color: 'var(--foreground)' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.student_ids.includes(student.id)}
+                    onChange={event => setStudentSelected(student.id, event.target.checked)}
+                    className="rounded border-gray-500 text-primary focus:ring-primary"
+                  />
+                  <span>{student.display_name}</span>
+                </label>
+              )) : <p className="px-3 py-3 text-sm" style={{ color: 'var(--foreground-subtle)' }}>No students available.</p>}
+            </div>
+          </fieldset>
+        ) : form.category === 'school' ? (
           <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Or schedule for a school</label>
-            <select value={selectedSchoolId} onChange={event => setSchoolSelected(event.target.value)} className="w-full px-3 py-2 text-sm input-dark">
-              <option value="">No school selected</option>
+            <label htmlFor="session-school" className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Select school *</label>
+            <select id="session-school" value={form.school_id} onChange={event => set('school_id', event.target.value)} className="w-full px-3 py-2 text-sm input-dark">
+              <option value="">Select school…</option>
               {schools.map(school => <option key={school.id} value={school.id}>{school.display_name}</option>)}
             </select>
+            {!schools.length && <p className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>No schools available.</p>}
           </div>
+        ) : (
+          <p className="text-xs" style={{ color: 'var(--foreground-subtle)' }}>Choose Students or School to select who this session is for.</p>
         )}
 
         <div className="grid grid-cols-2 gap-3">

@@ -120,16 +120,16 @@ The coach should be able to search or filter clients by name and client type.
 
 ## 6. Scheduling
 
-The coach can schedule sessions for either:
+The coach first chooses a session category, then schedules for either:
 
-- One or more individual students, including a group session
-- A school
+- **Students:** One individual student or multiple students for a group booking.
+- **School:** One school client.
 
 ### Session Fields
 
 Each scheduled session contains:
 
-- Student or school participants
+- One or more students in a shared session, or one school client
 - Date
 - Start time
 - Planned duration
@@ -140,7 +140,7 @@ Each scheduled session contains:
 - Optional notes
 - Session status
 
-A group session is one shared session record with multiple individual students. It appears in each participant's session history and sends each participant their own notifications when enabled.
+A group booking creates one shared session record listing all selected students. The same session appears in each student's history, each student can have a separate invoice for it, and every student with notifications enabled receives a notification.
 
 ### Session Statuses
 

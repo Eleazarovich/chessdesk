@@ -229,6 +229,11 @@ class Session(APIModel):
     notes: str
 
 
+class ClientSessionPage(APIModel):
+    sessions: list[Session]
+    has_more: bool
+
+
 class SessionCreateRequest(APIModel):
     coach_id: str
     client_id: str

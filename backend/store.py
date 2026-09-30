@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -367,6 +367,56 @@ class Store:
             ).all()
             participants = self._session_participant_map(db, rows)
             return [self._session(row, participants[row.id]) for row in rows]
+
+    def client_session_page(
+        self,
+        client_id: str,
+        *,
+        direction: str,
+        as_of_date: date,
+        as_of_time: str,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Session], bool]:
+        """Return a page of this client's own sessions and shared group sessions."""
+
+        date_before = CoachingSessionORM.date < as_of_date
+        date_after = CoachingSessionORM.date > as_of_date
+        same_day = CoachingSessionORM.date == as_of_date
+        time_before = CoachingSessionORM.start_time <= as_of_time
+        time_after = CoachingSessionORM.start_time >= as_of_time
+        if direction == "previous":
+            time_predicate = or_(date_before, (same_day & time_before))
+            ordering = (
+                CoachingSessionORM.date.desc(),
+                CoachingSessionORM.start_time.desc(),
+                CoachingSessionORM.id.desc(),
+            )
+        else:
+            time_predicate = or_(date_after, (same_day & time_after))
+            ordering = (
+                CoachingSessionORM.date,
+                CoachingSessionORM.start_time,
+                CoachingSessionORM.id,
+            )
+
+        with session_scope(self.session_factory) as db:
+            rows = db.scalars(
+                select(CoachingSessionORM)
+                .outerjoin(SessionParticipantORM, SessionParticipantORM.session_id == CoachingSessionORM.id)
+                .where(
+                    or_(CoachingSessionORM.client_id == client_id, SessionParticipantORM.client_id == client_id),
+                    time_predicate,
+                )
+                .distinct()
+                .order_by(*ordering)
+                .offset(offset)
+                .limit(limit + 1),
+            ).all()
+            has_more = len(rows) > limit
+            page = rows[:limit]
+            participants = self._session_participant_map(db, page)
+            return [self._session(row, participants[row.id]) for row in page], has_more
 
     def get_session(self, session_id: str) -> Session | None:
         with session_scope(self.session_factory) as db:

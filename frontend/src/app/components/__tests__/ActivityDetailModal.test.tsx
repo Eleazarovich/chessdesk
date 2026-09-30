@@ -44,7 +44,6 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     id: 'session-001',
     coach_id: 'coach-001',
     client_id: 'student-001',
-    participant_ids: ['student-001'],
     date: todayString,
     start_time: '15:00',
     planned_duration: 60,
@@ -210,5 +209,29 @@ describe('ActivityDetailModal', () => {
     expect(screen.getAllByText('Scheduled')).toHaveLength(2);
     expect(screen.getByText(/at 15:00 · Community Hall/)).toBeInTheDocument();
     expect(screen.getByText(/at 16:00 · Community Hall/)).toBeInTheDocument();
+  });
+
+  it('shows all students on a shared group session', async () => {
+    vi.spyOn(authService, 'getCurrentCoachId').mockReturnValue('coach-001');
+    vi.spyOn(clientService, 'getClients').mockResolvedValue([
+      makeClient(),
+      makeClient({
+        id: 'student-002',
+        display_name: 'Amina Dube',
+        individual_details: {
+          client_id: 'student-002',
+          student_name: 'Amina Dube',
+          school_name: 'North High',
+          parent_name: 'Zola Dube',
+        },
+      }),
+    ]);
+    vi.spyOn(sessionService, 'getSessions').mockResolvedValue([
+      makeSession({ participant_ids: ['student-001', 'student-002'] }),
+    ]);
+
+    render(<ActivityDetailModal activity="upcoming_sessions" filter="this_month" onClose={vi.fn()} />);
+
+    expect(await screen.findByText('Nandi Mokoena, Amina Dube')).toBeInTheDocument();
   });
 });

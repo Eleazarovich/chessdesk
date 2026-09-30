@@ -305,6 +305,63 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /clients/{clientId}/sessions:
+    get:
+      tags: [Clients]
+      operationId: getClientSessions
+      summary: List a client's sessions in time order
+      description: Returns a page of previous or upcoming sessions assigned to this client, including shared group sessions.
+      parameters:
+        - $ref: '#/components/parameters/ClientId'
+        - name: direction
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [previous, upcoming]
+        - name: as_of_date
+          in: query
+          required: true
+          description: The coach's local date used to split previous from upcoming sessions.
+          schema:
+            type: string
+            format: date
+        - name: as_of_time
+          in: query
+          required: true
+          description: The coach's local time used when a session falls on as_of_date.
+          schema:
+            type: string
+            pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 5
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: A time-ordered page of client sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientSessionPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /sessions:
     get:
       tags: [Sessions]
@@ -330,7 +387,7 @@ paths:
       tags: [Sessions]
       operationId: createSession
       summary: Schedule a coaching session
-      description: Creates a session for one student, a group of students, or a school. Each participant with notifications enabled receives a scheduled-session notification.
+      description: Creates one session record for a student, a group of students, or a school. Each student in a group appears in the shared session and can have their own invoice.
       requestBody:
         required: true
         content:
@@ -1128,12 +1185,12 @@ components:
           readOnly: true
         client_id:
           type: string
-          description: Primary client for compatibility with single-client session records; use participant_ids to set all attendees.
+          description: Primary client for compatibility with existing session records.
         participant_ids:
           type: array
           minItems: 1
           maxItems: 100
-          description: IDs of individual students attending this shared session, or one school client. Omit for a legacy single-client session.
+          description: Students or the single school client attached to this shared session.
           items:
             type: string
         date:
@@ -1158,6 +1215,17 @@ components:
         notes:
           type: string
 
+    ClientSessionPage:
+      type: object
+      required: [sessions, has_more]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+        has_more:
+          type: boolean
+
     SessionCreateRequest:
       type: object
       required:
@@ -1180,7 +1248,7 @@ components:
           type: array
           minItems: 1
           maxItems: 100
-          description: IDs of individual students attending this shared session, or one school client. Omit for a legacy single-client session.
+          description: Individual students attending this shared session, or one school client.
           items:
             type: string
         date:

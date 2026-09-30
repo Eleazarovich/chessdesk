@@ -26,6 +26,23 @@ describe('sessionService', () => {
     expect(get).toHaveBeenCalledWith('/sessions', { coach_id: 'coach-001' });
   });
 
+  it('loads a page of client session history with its time window and offset', async () => {
+    const page = { sessions: [session], has_more: true };
+    const get = vi.spyOn(apiClient, 'get').mockResolvedValue(page);
+
+    await expect(sessionService.getClientSessions(
+      'client-001', 'previous', '2026-09-30', '14:15', 5,
+    )).resolves.toEqual(page);
+
+    expect(get).toHaveBeenCalledWith('/clients/client-001/sessions', {
+      direction: 'previous',
+      as_of_date: '2026-09-30',
+      as_of_time: '14:15',
+      offset: '5',
+      limit: '5',
+    });
+  });
+
   it('creates sessions through the backend, which owns notifications', async () => {
     const post = vi.spyOn(apiClient, 'post').mockResolvedValue(session);
     const { id: _id, ...newSession } = session;

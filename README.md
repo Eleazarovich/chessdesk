@@ -32,7 +32,7 @@ Review paid and unpaid invoices, due dates, client balances, and collected total
 ## Features
 
 - **Client records:** Manage individual students and school clients, including parent or school contacts, WhatsApp and email details, notification preferences, notes, and active status.
-- **Session scheduling:** Schedule lessons for one or more students or a school; group lessons appear as one shared session in each student's history. Record online or in-person format, location, duration, notes, and status; update, complete, cancel, or delete sessions.
+- **Session scheduling:** Choose Students or School, then schedule for one or more students or a single school. Group bookings create one shared session that lists each student, while each student can have their own invoice. Record online or in-person format, location, duration, notes, and status; update, complete, cancel, or delete sessions.
 - **Invoices and payments:** Create invoices associated with coaching work, track paid and unpaid amounts, and record payment dates, methods, and references.
 - **Expense tracking:** Record business expenses by date, category, amount, and description.
 - **Business dashboard:** View revenue, payments received, outstanding invoices, expenses, net income, activity, and sessions for the current month, previous month, or all time.
