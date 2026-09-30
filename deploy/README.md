@@ -340,9 +340,11 @@ CI/CD with `workflow_dispatch` from `main` to deploy.
 ChessDesk sends password reset messages through Resend. The email service has
 a free tier suitable for this app. Before enabling delivery:
 
-1. Create a Resend account, add a sending domain, and publish the SPF and DKIM
-   records Resend provides in that domain's DNS settings. Use a sender address
-   on the verified domain.
+1. In Resend, add `mail.plynera.co.za` as the sending domain. Publish the DNS
+   records Resend provides for sending, then wait until Resend marks the domain
+   verified. Keep these records on the `mail` subdomain; the app is hosted at
+   `chessdesk.plynera.co.za`. Do not replace existing DNS records with generic
+   SPF or MX values; use the exact records Resend displays.
 2. Create a Resend API key. Do not put the key in GitHub Actions variables,
    source control, shell arguments, SSM Run Command, or logs.
 3. Add the key on the production EC2 host through an approved interactive
@@ -350,12 +352,14 @@ a free tier suitable for this app. Before enabling delivery:
    `/data/chessdesk-resend-api-key`, owned by UID/GID 10001 with mode `0400`.
    This file is on the existing encrypted EBS data volume. The deployment
    script mounts it read-only at `/run/secrets/resend_api_key`.
-4. In the GitHub `production` environment, add the non-secret variable
-   `CHESSDESK_EMAIL_FROM`, for example `ChessDesk <no-reply@your-verified-domain>`.
-   The workflow passes the app's CloudFormation `SiteUrl` as
-   `CHESSDESK_PUBLIC_URL`.
-5. Deploy the app after the key file and sender variable are in place. The
-   reset email flow remains disabled if any required setting is missing.
+4. The production workflow defaults `CHESSDESK_EMAIL_FROM` to
+   `ChessDesk <no-reply@mail.plynera.co.za>`. Set the non-secret GitHub
+   `production` environment variable `CHESSDESK_EMAIL_FROM` only if you want to
+   override that sender. The workflow passes the app's CloudFormation `SiteUrl`
+   as `CHESSDESK_PUBLIC_URL`, so reset links use the deployed site hostname.
+5. Deploy the app after the key file is in place and the sending domain is
+   verified. The reset email flow remains disabled if any required setting is
+   missing.
 
 The API key is not committed to this repository or sent in the deployment
 command. Rotate it by replacing the protected host file and deploying again.

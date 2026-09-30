@@ -131,7 +131,7 @@ Configure these values to send reset emails:
 | Variable | Purpose |
 | --- | --- |
 | `RESEND_API_KEY` | Resend API key. Production deployment can instead read it from the mounted `RESEND_API_KEY_FILE`. |
-| `CHESSDESK_EMAIL_FROM` | Verified sender address, such as `ChessDesk <no-reply@example.com>`. |
+| `CHESSDESK_EMAIL_FROM` | Verified sender address, such as `ChessDesk <no-reply@mail.plynera.co.za>`. |
 | `CHESSDESK_PUBLIC_URL` | HTTPS origin coaches use to open ChessDesk, without a path. |
 
 The public URL should match the CloudFront `SiteUrl` output in hosted
