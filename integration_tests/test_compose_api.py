@@ -82,15 +82,12 @@ def test_signup_login_duplicate_email_and_account_isolation(api_client: httpx.Cl
     )
     assert signup.status_code == 201, signup.text
     coach_id = signup.json()["id"]
-    signup_token = signup.json()["access_token"]
     api_client.cookies.clear()
 
-    own_clients = api_client.get(
+    unauthenticated_clients = api_client.get(
         "/api/v1/clients", params={"coach_id": coach_id},
-        headers={"Authorization": f"Bearer {signup_token}"},
     )
-    assert own_clients.status_code == 200
-    assert own_clients.json() == []
+    assert unauthenticated_clients.status_code == 401
 
     login = api_client.post(
         "/api/v1/auth/login", json={"email": email, "password": password},
@@ -98,6 +95,13 @@ def test_signup_login_duplicate_email_and_account_isolation(api_client: httpx.Cl
     assert login.status_code == 200, login.text
     login_token = login.json()["access_token"]
     api_client.cookies.clear()
+
+    own_clients = api_client.get(
+        "/api/v1/clients", params={"coach_id": coach_id},
+        headers={"Authorization": f"Bearer {login_token}"},
+    )
+    assert own_clients.status_code == 200
+    assert own_clients.json() == []
 
     bad_password = api_client.post(
         "/api/v1/auth/login", json={"email": email, "password": "wrong-password"},
@@ -123,7 +127,6 @@ def test_signup_login_duplicate_email_and_account_isolation(api_client: httpx.Cl
     assert invalid_session.status_code == 400
     assert invalid_session.json()["code"] == "VALIDATION_ERROR"
 
-    api_client.post("/api/v1/auth/logout", headers={"Authorization": f"Bearer {signup_token}"})
     api_client.post("/api/v1/auth/logout", headers=headers)
 
 
