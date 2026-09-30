@@ -50,4 +50,17 @@ describe('invoiceService', () => {
       payment_reference: 'EFT-001',
     });
   });
+
+  it('reverses an invoice to unpaid and clears payment details', async () => {
+    const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue(invoice);
+
+    await invoiceService.markUnpaid('inv-001');
+
+    expect(patch).toHaveBeenCalledWith('/invoices/inv-001', {
+      status: 'unpaid',
+      paid_date: null,
+      payment_method: null,
+      payment_reference: '',
+    });
+  });
 });

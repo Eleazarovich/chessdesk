@@ -177,10 +177,29 @@ def test_invoice_and_expense_routes_and_ownership() -> None:
     invoice_id = created_invoice.json()["id"]
     paid = request(
         "PATCH", f"/api/v1/invoices/{invoice_id}", headers=auth(token),
-        json={"status": "paid", "paid_date": "2026-09-06", "payment_method": "eft"},
+        json={
+            "status": "paid", "paid_date": "2026-09-06", "payment_method": "eft",
+            "payment_reference": "EFT-001",
+        },
     )
     assert paid.status_code == 200
     assert paid.json()["status"] == "paid"
+    assert paid.json()["paid_date"] == "2026-09-06"
+    assert paid.json()["payment_method"] == "eft"
+    assert paid.json()["payment_reference"] == "EFT-001"
+
+    reversed_payment = request(
+        "PATCH", f"/api/v1/invoices/{invoice_id}", headers=auth(token),
+        json={
+            "status": "unpaid", "paid_date": None, "payment_method": None,
+            "payment_reference": "",
+        },
+    )
+    assert reversed_payment.status_code == 200
+    assert reversed_payment.json()["status"] == "unpaid"
+    assert reversed_payment.json()["paid_date"] is None
+    assert reversed_payment.json()["payment_method"] is None
+    assert reversed_payment.json()["payment_reference"] == ""
 
     expense = request(
         "POST", "/api/v1/expenses", headers=auth(token),

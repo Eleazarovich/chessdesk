@@ -22,6 +22,15 @@ export const invoiceService = {
     });
   },
 
+  async markUnpaid(id: string): Promise<Invoice> {
+    return apiClient.patch<Invoice>(`/invoices/${id}`, {
+      status: 'unpaid',
+      paid_date: null,
+      payment_method: null,
+      payment_reference: '',
+    });
+  },
+
   async updateInvoice(id: string, data: Partial<Invoice>): Promise<Invoice> {
     const { id: _id, coach_id: _coachId, ...updates } = data;
     return apiClient.patch<Invoice>(`/invoices/${id}`, updates);

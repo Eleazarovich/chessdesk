@@ -10,7 +10,7 @@ import Modal from '@/components/ui/Modal';
 import DateTimeInput from '@/components/ui/DateTimeInput';
 import { isCurrentOrFutureDate } from '@/lib/dateUtils';
 import { exportInvoicePDF } from '@/lib/invoiceExport';
-import { FileText, CheckCircle, Search, Plus, Edit2, Trash2, Download } from 'lucide-react';
+import { FileText, CheckCircle, Search, Plus, Edit2, Trash2, Download, Undo2 } from 'lucide-react';
 
 const STATUS_FILTERS: { label: string; value: InvoiceStatus | 'all' }[] = [
   { label: 'All', value: 'all' },
@@ -161,6 +161,9 @@ export default function InvoicesPage() {
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [markingPaid, setMarkingPaid] = useState<string | null>(null);
+  const [confirmUnpaidId, setConfirmUnpaidId] = useState<string | null>(null);
+  const [reversingPaid, setReversingPaid] = useState<string | null>(null);
+  const [reverseError, setReverseError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -215,6 +218,21 @@ export default function InvoicesPage() {
       setInvoices(prev => prev.map(i => i.id === updated.id ? updated : i));
     } finally {
       setMarkingPaid(null);
+    }
+  };
+
+  const handleMarkUnpaid = async () => {
+    if (!confirmUnpaidId) return;
+    setReversingPaid(confirmUnpaidId);
+    setReverseError('');
+    try {
+      const updated = await invoiceService.markUnpaid(confirmUnpaidId);
+      setInvoices(prev => prev.map(i => i.id === updated.id ? updated : i));
+      setConfirmUnpaidId(null);
+    } catch {
+      setReverseError('Failed to reverse the payment status. Please try again.');
+    } finally {
+      setReversingPaid(null);
     }
   };
 
@@ -340,6 +358,17 @@ export default function InvoicesPage() {
                         {markingPaid === inv.id ? 'Saving…' : 'Mark Paid'}
                       </button>
                     )}
+                    {inv.status === 'paid' && (
+                      <button
+                        onClick={() => { setConfirmUnpaidId(inv.id); setReverseError(''); }}
+                        disabled={reversingPaid === inv.id}
+                        className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-all duration-150 disabled:opacity-50"
+                        style={{ background: 'var(--surface-elevated)', color: 'var(--foreground-muted)' }}
+                      >
+                        <Undo2 size={12} />
+                        Undo Paid
+                      </button>
+                    )}
                     <button
                       onClick={() => exportInvoicePDF(inv, clientMap[inv.client_id] || inv.client_id)}
                       className="p-1.5 rounded-lg btn-ghost opacity-0 group-hover:opacity-100 transition-opacity"
@@ -379,6 +408,40 @@ export default function InvoicesPage() {
         clients={clients}
         editInvoice={editingInvoice}
       />
+
+      {/* Reverse paid status confirmation */}
+      <Modal
+        open={!!confirmUnpaidId}
+        onClose={() => { if (!reversingPaid) setConfirmUnpaidId(null); }}
+        title="Mark invoice unpaid?"
+        size="sm"
+        footer={
+          <>
+            <button
+              onClick={() => setConfirmUnpaidId(null)}
+              disabled={!!reversingPaid}
+              className="px-4 py-2 rounded-lg text-sm font-medium btn-ghost border disabled:opacity-50"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleMarkUnpaid}
+              disabled={!!reversingPaid}
+              className="px-4 py-2 rounded-lg text-sm font-medium btn-primary disabled:opacity-60"
+            >
+              {reversingPaid ? 'Saving…' : 'Mark Unpaid'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {reverseError && <div className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--destructive-muted)', border: '1px solid var(--destructive)', color: 'var(--destructive)' }}>{reverseError}</div>}
+          <p className="text-sm" style={{ color: 'var(--foreground-muted)' }}>
+            This clears the recorded payment date, method, and reference. You can mark the invoice paid again later.
+          </p>
+        </div>
+      </Modal>
 
       {/* Delete confirm */}
       {confirmDeleteId && (

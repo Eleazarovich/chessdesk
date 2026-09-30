@@ -487,9 +487,10 @@ paths:
       operationId: updateInvoice
       summary: Update an invoice
       description: >-
-        Used by updateInvoice and markPaid in the frontend. markPaid sends
-        status=paid, paid_date, payment_method, and payment_reference in this
-        PATCH request.
+        Used by updateInvoice and payment status actions in the frontend.
+        markPaid sends status=paid, paid_date, payment_method, and
+        payment_reference. Reversing a mistaken paid status sends status=unpaid,
+        null paid_date and payment_method, and an empty payment_reference.
       requestBody:
         required: true
         content:
@@ -503,6 +504,12 @@ paths:
                   paid_date: '2026-09-07'
                   payment_method: eft
                   payment_reference: EFT-20260907-001
+              markUnpaid:
+                value:
+                  status: unpaid
+                  paid_date: null
+                  payment_method: null
+                  payment_reference: ''
       responses:
         '200':
           description: Updated invoice
