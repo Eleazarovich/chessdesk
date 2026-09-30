@@ -223,7 +223,7 @@ jobs:
           IMAGE_TAG: ${{ needs.build-image.outputs.image_tag }}
           ORIGIN_NAME: ${{ steps.target.outputs.origin_name }}
           PUBLIC_URL: ${{ steps.target.outputs.site_url }}
-          EMAIL_FROM: ${{ vars.CHESSDESK_EMAIL_FROM || 'ChessDesk <no-reply@mail.plynera.co.za>' }}
+          EMAIL_FROM: ${{ vars.CHESSDESK_EMAIL_FROM || 'ChessDesk <no-reply@mail.chessdesk.plynera.co.za>' }}
           DEPLOY_ENVIRONMENT: production
           OTEL_ENDPOINT: ${{ vars.CHESSDESK_OTEL_ENDPOINT || '' }}
         run: |
