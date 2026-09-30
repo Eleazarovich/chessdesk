@@ -21,7 +21,7 @@ def _validate_session_ids(session_ids: list[str], coach_id: str, client_id: str)
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"message": f"Session {session_id} not found", "code": "INVALID_SESSION"},
             )
-        if session.coach_id != coach_id or session.client_id != client_id:
+        if session.coach_id != coach_id or client_id not in session.participant_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"message": "Invoice sessions must belong to its client", "code": "SESSION_CLIENT_MISMATCH"},

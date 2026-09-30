@@ -330,7 +330,7 @@ paths:
       tags: [Sessions]
       operationId: createSession
       summary: Schedule a coaching session
-      description: Creates a session. If the client has notifications enabled, the backend should send the scheduled-session notification as a side effect.
+      description: Creates a session for one student, a group of students, or a school. Each participant with notifications enabled receives a scheduled-session notification.
       requestBody:
         required: true
         content:
@@ -1110,6 +1110,7 @@ components:
         - id
         - coach_id
         - client_id
+        - participant_ids
         - date
         - start_time
         - planned_duration
@@ -1127,6 +1128,14 @@ components:
           readOnly: true
         client_id:
           type: string
+          description: Primary client for compatibility with single-client session records; use participant_ids to set all attendees.
+        participant_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: IDs of individual students attending this shared session, or one school client. Omit for a legacy single-client session.
+          items:
+            type: string
         date:
           type: string
           format: date
@@ -1167,6 +1176,13 @@ components:
           type: string
         client_id:
           type: string
+        participant_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: IDs of individual students attending this shared session, or one school client. Omit for a legacy single-client session.
+          items:
+            type: string
         date:
           type: string
           format: date
@@ -1194,6 +1210,13 @@ components:
       properties:
         client_id:
           type: string
+        participant_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Replace the session attendees. Group sessions can include individual students only.
+          items:
+            type: string
         date:
           type: string
           format: date

@@ -122,14 +122,14 @@ The coach should be able to search or filter clients by name and client type.
 
 The coach can schedule sessions for either:
 
-- An individual student
+- One or more individual students, including a group session
 - A school
 
 ### Session Fields
 
 Each scheduled session contains:
 
-- Client
+- Student or school participants
 - Date
 - Start time
 - Planned duration
@@ -139,6 +139,8 @@ Each scheduled session contains:
 - Location if in-person
 - Optional notes
 - Session status
+
+A group session is one shared session record with multiple individual students. It appears in each participant's session history and sends each participant their own notifications when enabled.
 
 ### Session Statuses
 

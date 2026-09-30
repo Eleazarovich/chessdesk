@@ -48,6 +48,7 @@ export interface Session {
   id: string;
   coach_id: string;
   client_id: string;
+  participant_ids?: string[];
   date: string;
   start_time: string;
   planned_duration: number;

@@ -218,6 +218,7 @@ class Session(APIModel):
     id: str
     coach_id: str
     client_id: str
+    participant_ids: list[str] = Field(default_factory=list)
     date: Date
     start_time: str = Field(pattern=START_TIME_PATTERN)
     planned_duration: int = Field(ge=1)
@@ -231,6 +232,7 @@ class Session(APIModel):
 class SessionCreateRequest(APIModel):
     coach_id: str
     client_id: str
+    participant_ids: list[str] = Field(default_factory=list, min_length=1, max_length=100)
     date: Date
     start_time: str = Field(pattern=START_TIME_PATTERN)
     planned_duration: int = Field(ge=1)
@@ -243,6 +245,7 @@ class SessionCreateRequest(APIModel):
 
 class SessionUpdateRequest(APIModel):
     client_id: str | None = None
+    participant_ids: list[str] | None = Field(default=None, min_length=1, max_length=100)
     date: Date | None = None
     start_time: str | None = Field(default=None, pattern=START_TIME_PATTERN)
     planned_duration: int | None = Field(default=None, ge=1)

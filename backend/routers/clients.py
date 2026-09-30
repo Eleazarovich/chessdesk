@@ -24,8 +24,7 @@ def enrich_client(client: Client) -> ClientWithDetails:
     upcoming = sorted(
         (
             session for session in store.sessions_for_client(client.id)
-            if session.client_id == client.id
-            and session.status.value == "scheduled"
+            if session.status.value == "scheduled"
             and session.date >= store.today()
         ),
         key=lambda session: (session.date, session.start_time),

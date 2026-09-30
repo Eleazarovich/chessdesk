@@ -300,14 +300,19 @@ export default function Topbar({ onMenuClick, onLogout, loggingOut }: TopbarProp
 
     // Sessions
     sessions.filter(s => {
-      const name = clientNameMap[s.client_id] ?? '';
+      const participantNames = (s.participant_ids?.length ? s.participant_ids : [s.client_id])
+        .map(clientId => clientNameMap[clientId] ?? '');
+      const name = participantNames.join(' ');
       return name.toLowerCase().includes(q) ||
         (s.notes ?? '').toLowerCase().includes(q) ||
         (s.status ?? '').toLowerCase().includes(q) ||
         (s.date ?? '').includes(q);
     }).slice(0, 3).forEach(s => results.push({
       id: s.id, type: 'session',
-      title: clientNameMap[s.client_id] ?? 'Session',
+      title: (s.participant_ids?.length ? s.participant_ids : [s.client_id])
+        .map(clientId => clientNameMap[clientId] ?? '')
+        .filter(Boolean)
+        .join(', ') || 'Session',
       subtitle: `${s.date} · ${s.status}`,
       href: '/sessions',
     }));

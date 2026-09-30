@@ -89,6 +89,17 @@ class CoachingSessionORM(Base):
     notes: Mapped[str] = mapped_column(String(2000))
 
 
+class SessionParticipantORM(Base):
+    __tablename__ = "session_participants"
+
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("coaching_sessions.id"), primary_key=True,
+    )
+    client_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("clients.id"), primary_key=True, index=True,
+    )
+
+
 class InvoiceORM(Base):
     __tablename__ = "invoices"
 
@@ -209,6 +220,24 @@ def migrate_auth_tokens(engine: Engine) -> None:
         connection.execute(TokenORM.__table__.delete().where(TokenORM.expires_at == 0))
         for index in TokenORM.__table__.indexes:
             index.create(connection, checkfirst=True)
+
+
+def migrate_session_participants(engine: Engine) -> None:
+    """Add each legacy session's client as its initial participant."""
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            INSERT INTO session_participants (session_id, client_id)
+            SELECT coaching_sessions.id, coaching_sessions.client_id
+            FROM coaching_sessions
+            WHERE NOT EXISTS (
+                SELECT 1 FROM session_participants
+                WHERE session_participants.session_id = coaching_sessions.id
+            )
+            ON CONFLICT (session_id, client_id) DO NOTHING
+            """,
+        )
 
 
 @contextmanager

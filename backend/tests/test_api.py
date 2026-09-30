@@ -156,6 +156,70 @@ def test_session_lifecycle_records_only_enabled_notifications() -> None:
     assert len(get_store().notifications) == disabled_before
 
 
+def test_group_session_is_shared_by_students_and_can_be_invoiced_per_student() -> None:
+    token = login()
+    created = request(
+        "POST", "/api/v1/sessions", headers=auth(token),
+        json={
+            "coach_id": "coach-001", "client_id": "client-001",
+            "participant_ids": ["client-001", "client-002"], "date": "2026-09-20",
+            "start_time": "15:00", "planned_duration": 60, "actual_duration": None,
+            "session_type": "online", "location": "", "status": "scheduled", "notes": "Group tactics",
+        },
+    )
+    assert created.status_code == 201, created.text
+    group_session = created.json()
+    assert group_session["client_id"] == "client-001"
+    assert group_session["participant_ids"] == ["client-001", "client-002"]
+
+    fetched = request(
+        "GET", f"/api/v1/sessions/{group_session['id']}", headers=auth(token),
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["participant_ids"] == ["client-001", "client-002"]
+
+    store = get_store()
+    assert group_session["id"] in {session.id for session in store.sessions_for_client("client-001")}
+    assert group_session["id"] in {session.id for session in store.sessions_for_client("client-002")}
+    notifications = [item for item in store.notifications if item["session_id"] == group_session["id"]]
+    assert {item["client_id"] for item in notifications} == {"client-001", "client-002"}
+
+    invoice = request(
+        "POST", "/api/v1/invoices", headers=auth(token),
+        json={
+            "coach_id": "coach-001", "client_id": "client-002", "invoice_date": "2026-09-20",
+            "due_date": "2026-10-04", "amount": 300, "description": "Group session",
+            "status": "unpaid", "paid_date": None, "payment_method": None,
+            "payment_reference": "", "notes": "", "session_ids": [group_session["id"]],
+        },
+    )
+    assert invoice.status_code == 201, invoice.text
+
+    moved = request(
+        "PATCH", f"/api/v1/sessions/{group_session['id']}", headers=auth(token),
+        json={"participant_ids": ["client-001", "client-003"]},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["participant_ids"] == ["client-001", "client-003"]
+    assert group_session["id"] not in {session.id for session in store.sessions_for_client("client-002")}
+    assert group_session["id"] in {session.id for session in store.sessions_for_client("client-003")}
+
+
+def test_group_session_rejects_school_clients_mixed_with_students() -> None:
+    token = login()
+    created = request(
+        "POST", "/api/v1/sessions", headers=auth(token),
+        json={
+            "coach_id": "coach-001", "client_id": "client-001",
+            "participant_ids": ["client-001", "client-005"], "date": "2026-09-20",
+            "start_time": "15:00", "planned_duration": 60, "actual_duration": None,
+            "session_type": "online", "location": "", "status": "scheduled", "notes": "",
+        },
+    )
+    assert created.status_code == 400
+    assert created.json()["code"] == "INVALID_GROUP_PARTICIPANTS"
+
+
 def test_invoice_and_expense_routes_and_ownership() -> None:
     token = login()
     invoice_sessions = request(

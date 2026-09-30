@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..auth import get_current_user
 from ..models import (
+    ClientType,
     NotificationPayload,
     NotificationType,
     Session,
@@ -21,16 +22,33 @@ router = APIRouter(tags=["Sessions"])
 
 def _notification(session: Session, notification_type: NotificationType) -> None:
     store = get_store()
-    client = store.get_client(session.client_id)
-    if client is None:
-        return
-    payload = NotificationPayload(
-        client_id=client.id,
-        type=notification_type,
-        session=session,
-        client_name=client.display_name,
-    )
-    store.record_notification(payload)
+    for client_id in session.participant_ids or [session.client_id]:
+        client = store.get_client(client_id)
+        if client is None:
+            continue
+        payload = NotificationPayload(
+            client_id=client.id,
+            type=notification_type,
+            session=session,
+            client_name=client.display_name,
+        )
+        store.record_notification(payload)
+
+
+def _participant_ids(client_ids: list[str], current_user: UserRecord) -> list[str]:
+    unique_ids = list(dict.fromkeys(client_ids))
+    if not unique_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "At least one student or school is required", "code": "MISSING_PARTICIPANTS"},
+        )
+    clients = [ensure_client(client_id, current_user) for client_id in unique_ids]
+    if len(clients) > 1 and any(client.client_type is not ClientType.individual for client in clients):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Group sessions can include individual students only", "code": "INVALID_GROUP_PARTICIPANTS"},
+        )
+    return unique_ids
 
 
 @router.get("/sessions", response_model=list[Session], operation_id="getSessions")
@@ -48,9 +66,16 @@ async def create_session(
     current_user: UserRecord = Depends(get_current_user),
 ) -> Session:
     ensure_coach(payload.coach_id, current_user)
-    ensure_client(payload.client_id, current_user)
+    participant_ids = _participant_ids(
+        payload.participant_ids or [payload.client_id], current_user,
+    )
     store = get_store()
-    session = Session(id=store.next_id("session"), **payload.model_dump())
+    session = Session(
+        id=store.next_id("session"),
+        **payload.model_dump(exclude={"client_id", "participant_ids"}),
+        client_id=participant_ids[0],
+        participant_ids=participant_ids,
+    )
     store.save_session(session)
     _notification(session, NotificationType.scheduled)
     return session
@@ -72,8 +97,18 @@ async def update_session(
 ) -> Session:
     old_session = ensure_session(sessionId, current_user)
     updates = payload.model_dump(exclude_unset=True)
-    new_client_id = updates.get("client_id", old_session.client_id)
-    ensure_client(new_client_id, current_user)
+    if updates.get("participant_ids") is not None and "participant_ids" in updates:
+        participant_ids = _participant_ids(updates["participant_ids"] or [], current_user)
+        updates["participant_ids"] = participant_ids
+        updates["client_id"] = participant_ids[0]
+    elif "client_id" in updates:
+        updates.pop("participant_ids", None)
+        participant_ids = _participant_ids([updates["client_id"]], current_user)
+        updates["participant_ids"] = participant_ids
+        updates["client_id"] = participant_ids[0]
+    else:
+        updates.pop("participant_ids", None)
+        participant_ids = old_session.participant_ids or [old_session.client_id]
     updated = Session.model_validate({**old_session.model_dump(), **updates})
     get_store().save_session(updated)
 
@@ -84,7 +119,7 @@ async def update_session(
         _notification(updated, NotificationType.cancelled)
     elif any(
         getattr(old_session, field) != getattr(updated, field)
-        for field in ("client_id", "date", "start_time", "planned_duration", "session_type", "location")
+        for field in ("client_id", "participant_ids", "date", "start_time", "planned_duration", "session_type", "location")
     ):
         _notification(updated, NotificationType.updated)
     return updated
@@ -110,9 +145,11 @@ async def send_notification(
     stored_session = ensure_session(payload.session.id, current_user)
     client = ensure_client(payload.client_id, current_user)
     if (
-        stored_session.client_id != client.id
-        or payload.session.client_id != client.id
+        client.id not in stored_session.participant_ids
+        or payload.session.client_id != stored_session.client_id
         or payload.session.coach_id != current_user.user.id
+        or set(payload.session.participant_ids or [payload.session.client_id])
+        != set(stored_session.participant_ids)
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

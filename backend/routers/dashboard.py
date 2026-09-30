@@ -73,7 +73,11 @@ async def get_dashboard_data(
     upcoming_view = [
         UpcomingSession(
             session_id=session.id,
-            client_name=clients_by_id[session.client_id].display_name,
+            client_name=", ".join(
+                clients_by_id[client_id].display_name
+                for client_id in session.participant_ids
+                if client_id in clients_by_id
+            ) or clients_by_id[session.client_id].display_name,
             date=session.date,
             start_time=session.start_time,
             session_type=session.session_type,

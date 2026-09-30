@@ -28,12 +28,14 @@ from .database import (
     InvoiceSessionORM,
     NotificationORM,
     SchoolDetailsORM,
+    SessionParticipantORM,
     TokenORM,
     UserORM,
     create_database_engine,
     create_session_factory,
     database_url_from_env,
     migrate_auth_tokens,
+    migrate_session_participants,
     session_scope,
 )
 
@@ -94,6 +96,7 @@ class Store:
         migrate_auth_tokens(self.engine)
         if _env_enabled("CHESSDESK_SEED_DEMO", default=True):
             self._seed_if_empty()
+        migrate_session_participants(self.engine)
 
     def close(self) -> None:
         self.engine.dispose()
@@ -104,6 +107,7 @@ class Store:
         Base.metadata.drop_all(self.engine)
         Base.metadata.create_all(self.engine)
         self._seed_if_empty()
+        migrate_session_participants(self.engine)
 
     def today(self) -> date:
         return date.today()
@@ -274,16 +278,38 @@ class Store:
 
     def delete_client(self, client_id: str) -> None:
         with session_scope(self.session_factory) as db:
-            session_ids = db.scalars(
+            session_ids = set(db.scalars(
+                select(SessionParticipantORM.session_id).where(SessionParticipantORM.client_id == client_id),
+            ).all())
+            session_ids.update(db.scalars(
                 select(CoachingSessionORM.id).where(CoachingSessionORM.client_id == client_id),
-            ).all()
+            ).all())
+            sessions_to_delete: list[str] = []
+            for session_id in session_ids:
+                row = db.get(CoachingSessionORM, session_id)
+                if row is None:
+                    continue
+                participants = db.scalars(
+                    select(SessionParticipantORM.client_id)
+                    .where(SessionParticipantORM.session_id == session_id)
+                    .order_by(SessionParticipantORM.client_id),
+                ).all()
+                participants = [participant_id for participant_id in participants if participant_id != client_id]
+                if participants:
+                    if row.client_id == client_id:
+                        row.client_id = participants[0]
+                else:
+                    sessions_to_delete.append(session_id)
+
             invoice_ids = db.scalars(
                 select(InvoiceORM.id).where(InvoiceORM.client_id == client_id),
             ).all()
-            if session_ids:
-                db.execute(delete(InvoiceSessionORM).where(InvoiceSessionORM.session_id.in_(session_ids)))
-                db.execute(delete(NotificationORM).where(NotificationORM.session_id.in_(session_ids)))
-                db.execute(delete(CoachingSessionORM).where(CoachingSessionORM.id.in_(session_ids)))
+            db.execute(delete(SessionParticipantORM).where(SessionParticipantORM.client_id == client_id))
+            if sessions_to_delete:
+                db.execute(delete(InvoiceSessionORM).where(InvoiceSessionORM.session_id.in_(sessions_to_delete)))
+                db.execute(delete(NotificationORM).where(NotificationORM.session_id.in_(sessions_to_delete)))
+                db.execute(delete(SessionParticipantORM).where(SessionParticipantORM.session_id.in_(sessions_to_delete)))
+                db.execute(delete(CoachingSessionORM).where(CoachingSessionORM.id.in_(sessions_to_delete)))
             if invoice_ids:
                 db.execute(delete(InvoiceSessionORM).where(InvoiceSessionORM.invoice_id.in_(invoice_ids)))
                 db.execute(delete(InvoiceORM).where(InvoiceORM.id.in_(invoice_ids)))
@@ -301,21 +327,54 @@ class Store:
                 .where(CoachingSessionORM.coach_id == coach_id)
                 .order_by(CoachingSessionORM.date, CoachingSessionORM.start_time),
             ).all()
-            return [self._session(row) for row in rows]
+            participants = self._session_participant_map(db, rows)
+            return [self._session(row, participants[row.id]) for row in rows]
+
+    @staticmethod
+    def _session_participant_map(db: Any, rows: list[CoachingSessionORM]) -> dict[str, list[str]]:
+        session_ids = [row.id for row in rows]
+        participants: dict[str, list[str]] = {session_id: [] for session_id in session_ids}
+        if session_ids:
+            memberships = db.execute(
+                select(SessionParticipantORM.session_id, SessionParticipantORM.client_id)
+                .where(SessionParticipantORM.session_id.in_(session_ids))
+                .order_by(SessionParticipantORM.session_id, SessionParticipantORM.client_id),
+            ).all()
+            for session_id, client_id in memberships:
+                participants[session_id].append(client_id)
+        for row in rows:
+            if not participants[row.id]:
+                participants[row.id] = [row.client_id]
+            elif row.client_id in participants[row.id]:
+                participants[row.id].remove(row.client_id)
+                participants[row.id].insert(0, row.client_id)
+        return participants
 
     def sessions_for_client(self, client_id: str) -> list[Session]:
         with session_scope(self.session_factory) as db:
             rows = db.scalars(
                 select(CoachingSessionORM)
-                .where(CoachingSessionORM.client_id == client_id)
+                .outerjoin(
+                    SessionParticipantORM,
+                    SessionParticipantORM.session_id == CoachingSessionORM.id,
+                )
+                .where(
+                    (CoachingSessionORM.client_id == client_id)
+                    | (SessionParticipantORM.client_id == client_id)
+                )
+                .distinct()
                 .order_by(CoachingSessionORM.date, CoachingSessionORM.start_time),
             ).all()
-            return [self._session(row) for row in rows]
+            participants = self._session_participant_map(db, rows)
+            return [self._session(row, participants[row.id]) for row in rows]
 
     def get_session(self, session_id: str) -> Session | None:
         with session_scope(self.session_factory) as db:
             row = db.get(CoachingSessionORM, session_id)
-            return self._session(row) if row is not None else None
+            if row is None:
+                return None
+            participants = self._session_participant_map(db, [row])
+            return self._session(row, participants[row.id])
 
     def save_session(self, coaching_session: Session) -> None:
         with session_scope(self.session_factory) as db:
@@ -333,11 +392,20 @@ class Store:
             row.location = coaching_session.location
             row.status = _value(coaching_session.status)
             row.notes = coaching_session.notes
+            db.flush()
+            db.execute(
+                delete(SessionParticipantORM).where(SessionParticipantORM.session_id == coaching_session.id),
+            )
+            db.add_all([
+                SessionParticipantORM(session_id=coaching_session.id, client_id=participant_id)
+                for participant_id in dict.fromkeys(coaching_session.participant_ids or [coaching_session.client_id])
+            ])
 
     def delete_session(self, session_id: str) -> None:
         with session_scope(self.session_factory) as db:
             db.execute(delete(InvoiceSessionORM).where(InvoiceSessionORM.session_id == session_id))
             db.execute(delete(NotificationORM).where(NotificationORM.session_id == session_id))
+            db.execute(delete(SessionParticipantORM).where(SessionParticipantORM.session_id == session_id))
             db.execute(delete(CoachingSessionORM).where(CoachingSessionORM.id == session_id))
 
     # Invoice operations --------------------------------------------------
@@ -553,11 +621,12 @@ class Store:
         )
 
     @staticmethod
-    def _session(row: CoachingSessionORM) -> Session:
+    def _session(row: CoachingSessionORM, participant_ids: list[str] | None = None) -> Session:
         return Session(
             id=row.id,
             coach_id=row.coach_id,
             client_id=row.client_id,
+            participant_ids=participant_ids or [row.client_id],
             date=row.date,
             start_time=row.start_time,
             planned_duration=row.planned_duration,

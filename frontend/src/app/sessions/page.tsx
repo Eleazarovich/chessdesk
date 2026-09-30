@@ -4,11 +4,9 @@ import AppLayout from '@/components/AppLayout';
 import { sessionService } from '@/lib/services/sessionService';
 import { clientService } from '@/lib/services/clientService';
 import { authService } from '@/lib/services/authService';
-import type { Session, SessionStatus, SessionType, ClientWithDetails } from '@/lib/types';
+import type { Session, SessionStatus, ClientWithDetails } from '@/lib/types';
+import SessionModal from '@/app/components/SessionModal';
 import StatusBadge from '@/components/ui/StatusBadge';
-import Modal from '@/components/ui/Modal';
-import DateTimeInput from '@/components/ui/DateTimeInput';
-import { isCurrentOrFutureDate, isCurrentOrFutureDateTime } from '@/lib/dateUtils';
 import { ClipboardList, Clock, MapPin, Monitor, Search, Plus, Edit2, Trash2 } from 'lucide-react';
 
 const STATUS_FILTERS: { label: string; value: SessionStatus | 'all' }[] = [
@@ -18,156 +16,9 @@ const STATUS_FILTERS: { label: string; value: SessionStatus | 'all' }[] = [
   { label: 'Cancelled', value: 'cancelled' },
 ];
 
-interface SessionFormData {
-  client_id: string;
-  date: string;
-  start_time: string;
-  planned_duration: number;
-  session_type: SessionType;
-  location: string;
-  status: SessionStatus;
-  notes: string;
-}
-
-interface SessionModalProps {
-  open: boolean;
-  onClose: () => void;
-  onSuccess: (session: Session) => void;
-  clients: ClientWithDetails[];
-  editSession?: Session | null;
-}
-
-function SessionModal({ open, onClose, onSuccess, clients, editSession }: SessionModalProps) {
-  const isEdit = !!editSession;
-  const [form, setForm] = useState<SessionFormData>({
-    client_id: editSession?.client_id ?? '',
-    date: editSession?.date ?? '',
-    start_time: editSession?.start_time ?? '',
-    planned_duration: editSession?.planned_duration ?? 60,
-    session_type: editSession?.session_type ?? 'in-person',
-    location: editSession?.location ?? '',
-    status: editSession?.status ?? 'scheduled',
-    notes: editSession?.notes ?? '',
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (open) {
-      setForm({
-        client_id: editSession?.client_id ?? '',
-        date: editSession?.date ?? '',
-        start_time: editSession?.start_time ?? '',
-        planned_duration: editSession?.planned_duration ?? 60,
-        session_type: editSession?.session_type ?? 'in-person',
-        location: editSession?.location ?? '',
-        status: editSession?.status ?? 'scheduled',
-        notes: editSession?.notes ?? '',
-      });
-      setError('');
-    }
-  }, [open, editSession]);
-
-  const set = (k: keyof SessionFormData, v: string | number) => setForm(f => ({ ...f, [k]: v }));
-
-  const handleSave = async () => {
-    if (!form.client_id || !form.date || !form.start_time) {
-      setError('Client, date and start time are required.');
-      return;
-    }
-    if (!isCurrentOrFutureDate(form.date)) {
-      setError('Date cannot be in the past.');
-      return;
-    }
-    if (!isCurrentOrFutureDateTime(form.date, form.start_time)) {
-      setError('Start time cannot be in the past.');
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      let result: Session;
-      if (isEdit && editSession) {
-        result = await sessionService.updateSession(editSession.id, form);
-      } else {
-        const coachId = authService.getCurrentCoachId();
-        if (!coachId) throw new Error('Authentication required');
-        result = await sessionService.createSession({ ...form, coach_id: coachId, actual_duration: null });
-      }
-      onSuccess(result);
-    } catch {
-      setError('Failed to save session. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={isEdit ? 'Edit Session' : 'New Session'}
-      size="md"
-      footer={
-        <>
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium btn-ghost border" style={{ borderColor: 'var(--border)' }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium btn-primary disabled:opacity-60">
-            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Session'}
-          </button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {error && <div className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--destructive-muted)', border: '1px solid var(--destructive)', color: 'var(--destructive)' }}>{error}</div>}
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Client *</label>
-          <select value={form.client_id} onChange={e => set('client_id', e.target.value)} className="w-full px-3 py-2 text-sm input-dark">
-            <option value="">Select client…</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.display_name}</option>)}
-          </select>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Date *</label>
-            <DateTimeInput type="date" value={form.date} onChange={e => set('date', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Start Time *</label>
-            <DateTimeInput type="time" dateValue={form.date} value={form.start_time} onChange={e => set('start_time', e.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Duration (min)</label>
-            <input type="number" min={15} step={15} value={form.planned_duration} onChange={e => set('planned_duration', Number(e.target.value))} className="w-full px-3 py-2 text-sm input-dark" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Type</label>
-            <select value={form.session_type} onChange={e => set('session_type', e.target.value)} className="w-full px-3 py-2 text-sm input-dark">
-              <option value="in-person">In-person</option>
-              <option value="online">Online</option>
-            </select>
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Location</label>
-          <input type="text" value={form.location} onChange={e => set('location', e.target.value)} placeholder="e.g. Rosebank Library" className="w-full px-3 py-2 text-sm input-dark" />
-        </div>
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Status</label>
-          <select value={form.status} onChange={e => set('status', e.target.value)} className="w-full px-3 py-2 text-sm input-dark">
-            <option value="scheduled">Scheduled</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Notes</label>
-          <textarea rows={2} value={form.notes} onChange={e => set('notes', e.target.value)} className="w-full px-3 py-2 text-sm input-dark resize-none" />
-        </div>
-      </div>
-    </Modal>
-  );
+function sessionParticipantNames(session: Session, clientMap: Record<string, string>): string[] {
+  return (session.participant_ids?.length ? session.participant_ids : [session.client_id])
+    .map(clientId => clientMap[clientId] || clientId);
 }
 
 export default function SessionsPage() {
@@ -211,7 +62,7 @@ export default function SessionsPage() {
       if (statusFilter !== 'all' && s.status !== statusFilter) return false;
       if (search) {
         const q = search.toLowerCase();
-        const name = (clientMap[s.client_id] || '').toLowerCase();
+        const name = sessionParticipantNames(s, clientMap).join(' ').toLowerCase();
         if (!name.includes(q) && !s.location.toLowerCase().includes(q) && !s.notes.toLowerCase().includes(q)) return false;
       }
       return true;
@@ -312,7 +163,7 @@ export default function SessionsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>{clientMap[session.client_id] || session.client_id}</span>
+                    <span className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>{sessionParticipantNames(session, clientMap).join(', ')}</span>
                     <StatusBadge variant={session.status} />
                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--surface-elevated)', color: 'var(--foreground-muted)' }}>
                       {session.session_type}
