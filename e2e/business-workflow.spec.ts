@@ -150,10 +150,11 @@ test('coach completes the business workflow, verifies dashboard and profile upda
     await page.goto('/schedule/');
     await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible();
     await page.getByRole('button', { name: 'New Session', exact: true }).click();
+    await page.getByRole('button', { name: 'Students', exact: true }).click();
     await page.getByRole('checkbox', { name: studentName, exact: true }).check();
     await page.locator('input[type="date"]').fill(sessionDate);
     await page.locator('input[type="time"]').fill('00:00');
-    await page.locator('select').nth(1).selectOption('online');
+    await page.locator('select').first().selectOption('online');
     await page.locator('textarea').last().fill(sessionNote);
     const sessionResponsePromise = waitForApiResponse(page, 'POST', '/api/v1/sessions');
     await page.getByRole('button', { name: 'Create Session', exact: true }).click();
