@@ -32,14 +32,14 @@ Review paid and unpaid invoices, due dates, client balances, and collected total
 ## Features
 
 - **Client records:** Manage individual students and school clients, including parent or school contacts, WhatsApp and email details, notification preferences, notes, and active status.
-- **Session scheduling:** Choose Students or School, then schedule for one or more students or a single school. Group bookings create one shared session that lists each student, while each student can have their own invoice. Record online or in-person format, location, duration, notes, and status; update, complete, cancel, or delete sessions.
-- **Invoices and payments:** Create invoices associated with coaching work, track paid and unpaid amounts, and record payment dates, methods, and references.
+- **Session scheduling:** Choose Students or School, then schedule for one or more students or a single school. Group bookings create one shared session that lists each student, while each student can have their own invoice. Review a client's session history, and record online or in-person format, location, duration, notes, and status; update, complete, cancel, or delete sessions.
+- **Invoices and payments:** Create invoices associated with coaching work, track paid and unpaid amounts, and record payment dates, methods, and references. Correct a mistakenly paid invoice by returning it to unpaid and clearing its payment details.
 - **Expense tracking:** Record business expenses by date, category, amount, and description.
-- **Business dashboard:** View revenue, payments received, outstanding invoices, expenses, net income, activity, and sessions for the current month, previous month, or all time.
-- **Coach accounts:** Sign up, sign in, update a business profile, and keep each account's coaching records isolated.
+- **Business dashboard:** View revenue, payments received, outstanding invoices, expenses, net income, activity, and sessions for the current month, previous month, or all time. Open activity counts to see the related students, schools, sessions, or unpaid invoices.
+- **Coach accounts:** Sign up, sign in, update a business profile, keep each account's coaching records isolated, and request a password-reset email.
 - **API and telemetry:** Explore the REST API through OpenAPI docs. The backend can export traces and metrics through OpenTelemetry to the included local observability stack.
 
-Session changes can create notification records according to each client's preferences. The app does not currently connect to an email or WhatsApp delivery provider, so it does not send those messages.
+Session changes can create notification records according to each client's preferences, but session reminders and change notifications are not delivered by email or WhatsApp. Password-reset emails are sent through Resend when its delivery settings are configured; see the [backend setup notes](backend/README.md#password-reset-email).
 
 ## Run locally
 
@@ -82,6 +82,10 @@ Open the app at <http://localhost:8000>. Grafana is at <http://localhost:3000> w
 | <code>DATABASE_URL</code> | <code>sqlite:///./chessdesk.db</code> | SQLAlchemy database URL. Docker Compose configures PostgreSQL. |
 | <code>CHESSDESK_SEED_DEMO</code> | <code>true</code> | Seed example records when the database has no coach. Disable for hosted deployments. |
 | <code>CHESSDESK_COOKIE_SECURE</code> | <code>false</code> | Set <code>true</code> when serving over HTTPS so the session cookie is sent only over encrypted connections. |
+| <code>RESEND_API_KEY</code> | unset | Resend API key for password-reset email delivery. Keep this secret. |
+| <code>RESEND_API_KEY_FILE</code> | unset | Path to a file containing the Resend API key; used by the hosted deployment. |
+| <code>CHESSDESK_EMAIL_FROM</code> | unset locally | Verified sender address for password-reset email. The production workflow supplies the ChessDesk sender by default. |
+| <code>CHESSDESK_PUBLIC_URL</code> | <code>http://localhost:8000</code> in Compose | Public app origin used to create password-reset links. |
 | <code>OTEL_SERVICE_NAME</code> | <code>chessdesk-backend</code> | Override the OpenTelemetry service name. |
 | <code>OTEL_RESOURCE_ATTRIBUTES</code> | development defaults | Set deployment environment and version resource attributes. |
 | <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> | unset outside Compose | OTLP collector endpoint. Compose defaults to <code>http://otel-collector:4317</code>. |
@@ -129,23 +133,22 @@ Install the root Playwright dependencies and Chromium, then run the end-to-end w
     npx playwright install chromium
     make e2e
 
-The GitHub Actions workflow runs backend tests, frontend tests, Compose integration tests, and Playwright end-to-end tests. On pushes to <code>main</code>, it then builds and deploys to the development environment. Production promotion is a separate manual workflow. See the [deployment guide](deploy/README.md).
+The GitHub Actions workflow runs backend tests, frontend tests, Compose integration tests, and Playwright end-to-end tests. Successful pushes to <code>main</code> build an image and queue a production deployment, which requires approval in GitHub's protected <code>production</code> environment. See the [deployment guide](deploy/README.md).
 
 ## Deployment and operations
 
-The AWS deployment uses separate development and production stacks. GitHub Actions deploys successful <code>main</code> builds to development; a manual workflow promotes the image running there to production. Deployment details, required AWS setup, and operator access are in [deploy/README.md](deploy/README.md).
+GitHub Actions deploys successful <code>main</code> builds directly to production after the protected-environment approval. The workflow checks the deployed health endpoint, and the deployment script restores the previous container if the new one fails. The development stack is separate and is not part of the current CI/CD path. Deployment details and operator access are in [deploy/README.md](deploy/README.md).
 
 The local observability stack and current metrics are described in [observability/README.md](observability/README.md). It includes a Grafana application metrics dashboard and an alert for repeated session-creation server errors.
 
 ## Limitations and next steps
 
-- Session notification events are stored in the app's database; no real WhatsApp or email provider is integrated.
-- Password-reset requests return the same accepted response for any address, but no reset email is sent.
+- Session notification events are stored in the app's database, but session reminders and change notifications are not sent. Password-reset email is available through Resend when configured.
 - Dashboard charts and summaries use recorded business data; they do not provide accounting, tax, or payment processing.
 - Demo seed records use dates relative to the current date and are added only when the database is empty.
 - There is no parent, learner, or school portal, team management, chess engine, or online game interface.
 
-Integrating message delivery and a real password-reset flow are natural follow-up tasks. The [MVP specification](docs/spec.md) describes the original product scope.
+Delivering session reminders and change notifications is a natural follow-up task. The [MVP specification](docs/spec.md) describes the original product scope.
 
 ## Repository topics
 
@@ -153,7 +156,7 @@ GitHub topics: <code>chess</code>, <code>chess-coaching</code>, <code>coaching-m
 
 ## Releases
 
-The current release is [v0.1.0](https://github.com/Eleazarovich/chessdesk/releases/tag/v0.1.0). Read the [v0.1.0 release notes](docs/releases/v0.1.0.md) or browse [all releases](https://github.com/Eleazarovich/chessdesk/releases).
+The current release is [v0.2.0](https://github.com/Eleazarovich/chessdesk/releases/tag/v0.2.0). Read the [v0.2.0 release notes](docs/releases/v0.2.0.md) or browse [all releases](https://github.com/Eleazarovich/chessdesk/releases).
 
 ## Author
 
