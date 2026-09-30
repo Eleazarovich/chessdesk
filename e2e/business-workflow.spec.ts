@@ -150,8 +150,7 @@ test('coach completes the business workflow, verifies dashboard and profile upda
     await page.goto('/schedule/');
     await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible();
     await page.getByRole('button', { name: 'New Session', exact: true }).click();
-    await expect(page.locator('select').first().getByRole('option', { name: studentName })).toHaveCount(1);
-    await page.locator('select').first().selectOption({ label: studentName });
+    await page.getByRole('checkbox', { name: studentName, exact: true }).check();
     await page.locator('input[type="date"]').fill(sessionDate);
     await page.locator('input[type="time"]').fill('00:00');
     await page.locator('select').nth(1).selectOption('online');
