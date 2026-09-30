@@ -124,8 +124,38 @@ paths:
           description: Authentication request exceeds 16 KiB
         '204':
           description: Reset request accepted
+        '503':
+          description: Password reset email delivery is not configured
         '400':
           $ref: '#/components/responses/BadRequest'
+
+  /auth/password/reset/confirm:
+    post:
+      tags: [Authentication]
+      operationId: confirmPasswordReset
+      summary: Set a new password using a reset link
+      description: Public endpoint. The reset token is single-use and expires after 30 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPasswordResetRequest'
+      responses:
+        '204':
+          description: Password updated and active sessions revoked
+        '400':
+          description: Reset token is invalid or expired
+        '429':
+          description: Too many reset attempts
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until another attempt is allowed
+        '413':
+          description: Authentication request exceeds 16 KiB
 
   /auth/logout:
     post:
@@ -927,6 +957,20 @@ components:
         email:
           type: string
           format: email
+
+    ConfirmPasswordResetRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 32
+          maxLength: 256
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 1024
 
     AuthUser:
       type: object

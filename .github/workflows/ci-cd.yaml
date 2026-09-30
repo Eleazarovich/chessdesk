@@ -222,6 +222,8 @@ jobs:
           INSTANCE_ID: ${{ steps.target.outputs.instance_id }}
           IMAGE_TAG: ${{ needs.build-image.outputs.image_tag }}
           ORIGIN_NAME: ${{ steps.target.outputs.origin_name }}
+          PUBLIC_URL: ${{ steps.target.outputs.site_url }}
+          EMAIL_FROM: ${{ vars.CHESSDESK_EMAIL_FROM || '' }}
           DEPLOY_ENVIRONMENT: production
           OTEL_ENDPOINT: ${{ vars.CHESSDESK_OTEL_ENDPOINT || '' }}
         run: |
@@ -234,13 +236,15 @@ jobs:
             --arg region "$AWS_REGION" \
             --arg origin_name "$ORIGIN_NAME" \
             --arg otel_endpoint "$OTEL_ENDPOINT" \
+            --arg public_url "$PUBLIC_URL" \
+            --arg email_from "$EMAIL_FROM" \
             '{
               InstanceIds: [$instance_id],
               DocumentName: "AWS-RunShellScript",
               Comment: ("ChessDesk deploy " + $image_tag),
               TimeoutSeconds: 600,
               Parameters: {
-                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + ($commit | @sh) + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && " + (["bash", "/opt/chessdesk/deploy/deploy-ec2.sh", $image_tag, $commit, $region, $deployment_environment, $origin_name, $otel_endpoint] | @sh))],
+                commands: [("git -C /opt/chessdesk fetch --depth 1 origin " + ($commit | @sh) + " >/dev/null && git -C /opt/chessdesk checkout --detach --force FETCH_HEAD >/dev/null && " + (["bash", "/opt/chessdesk/deploy/deploy-ec2.sh", $image_tag, $commit, $region, $deployment_environment, $origin_name, $otel_endpoint, $public_url, $email_from] | @sh))],
                 executionTimeout: ["3000"]
               }
             }' > "$RUNNER_TEMP/ssm-command.json"

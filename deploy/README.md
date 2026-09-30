@@ -334,3 +334,28 @@ timestamped image, then deploys it to production only after all checks pass.
 The production deployment uses the production environment role and has a
 rollback health check. After setting up these resources, push to `main` or run
 CI/CD with `workflow_dispatch` from `main` to deploy.
+
+## Password reset email
+
+ChessDesk sends password reset messages through Resend. The email service has
+a free tier suitable for this app. Before enabling delivery:
+
+1. Create a Resend account, add a sending domain, and publish the SPF and DKIM
+   records Resend provides in that domain's DNS settings. Use a sender address
+   on the verified domain.
+2. Create a Resend API key. Do not put the key in GitHub Actions variables,
+   source control, shell arguments, SSM Run Command, or logs.
+3. Add the key on the production EC2 host through an approved interactive
+   secret-entry session that does not record terminal input. Store it at
+   `/data/chessdesk-resend-api-key`, owned by UID/GID 10001 with mode `0400`.
+   This file is on the existing encrypted EBS data volume. The deployment
+   script mounts it read-only at `/run/secrets/resend_api_key`.
+4. In the GitHub `production` environment, add the non-secret variable
+   `CHESSDESK_EMAIL_FROM`, for example `ChessDesk <no-reply@your-verified-domain>`.
+   The workflow passes the app's CloudFormation `SiteUrl` as
+   `CHESSDESK_PUBLIC_URL`.
+5. Deploy the app after the key file and sender variable are in place. The
+   reset email flow remains disabled if any required setting is missing.
+
+The API key is not committed to this repository or sent in the deployment
+command. Rotate it by replacing the protected host file and deploying again.

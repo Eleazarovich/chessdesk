@@ -7,6 +7,8 @@ region="${3:-}"
 deployment_environment="${4:-}"
 origin_name="${5:-}"
 otel_endpoint="${6:-}"
+site_url="${7:-}"
+email_from="${8:-}"
 
 if [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$ \
   || ! "$commit" =~ ^[0-9a-f]{40}$ \
@@ -14,11 +16,15 @@ if [[ ! "$image_tag" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$ \
   || ! "$region" =~ ^[a-z0-9-]+$ \
   || ! "$deployment_environment" =~ ^(dev|production)$ \
   || ! "$origin_name" =~ ^[A-Za-z0-9][A-Za-z0-9.-]+[A-Za-z0-9]$ ]]; then
-  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region> <dev|production> <origin hostname> [OTLP endpoint]" >&2
+  echo "Usage: $0 <YYYYMMDD-HHMMSS-shortsha> <40-character commit SHA> <AWS region> <dev|production> <origin hostname> [OTLP endpoint] <site URL> [sender email]" >&2
   exit 2
 fi
 if [[ -n "$otel_endpoint" && ! "$otel_endpoint" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^[:space:]]*)?$ ]]; then
   echo "OTLP endpoint must be an HTTP(S) URL without spaces." >&2
+  exit 2
+fi
+if [[ ! "$site_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]]; then
+  echo "The public site URL must be an HTTPS origin without a path." >&2
   exit 2
 fi
 
@@ -97,6 +103,17 @@ if [[ -n "$otel_endpoint" ]]; then
   )
 fi
 
+email_secret_args=()
+api_key_file=/data/chessdesk-resend-api-key
+if [[ -f "$api_key_file" ]]; then
+  chown 10001:10001 "$api_key_file"
+  chmod 0400 "$api_key_file"
+  email_secret_args+=(
+    --mount "type=bind,src=$api_key_file,dst=/run/secrets/resend_api_key,readonly"
+    --env RESEND_API_KEY_FILE=/run/secrets/resend_api_key
+  )
+fi
+
 docker run --detach \
   --name chessdesk \
   --restart unless-stopped \
@@ -104,6 +121,7 @@ docker run --detach \
   --publish 8443:8443 \
   --volume /data/chessdesk:/data \
   --volume "$tls_dir:/tls:ro" \
+  "${email_secret_args[@]}" \
   --env DATABASE_URL=sqlite:////data/chessdesk.db \
   --env CHESSDESK_SEED_DEMO=false \
   --env CHESSDESK_COOKIE_SECURE=true \
@@ -112,6 +130,8 @@ docker run --detach \
   --env CHESSDESK_TLS_CERTFILE=/tls/fullchain.pem \
   --env CHESSDESK_TLS_KEYFILE=/tls/privkey.pem \
   --env "CHESSDESK_TLS_SERVER_NAME=$origin_name" \
+  --env "CHESSDESK_PUBLIC_URL=$site_url" \
+  --env "CHESSDESK_EMAIL_FROM=$email_from" \
   --env CHESSDESK_TRUST_CLOUDFRONT=true \
   "${telemetry_args[@]}" \
   --env "OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=$deployment_environment,service.version=$commit" \

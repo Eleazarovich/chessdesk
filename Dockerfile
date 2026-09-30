@@ -29,8 +29,9 @@ COPY backend/ ./backend/
 COPY --from=frontend-build /frontend/out/ ./backend/static/
 
 RUN useradd --create-home --uid 10001 app \
-    && mkdir -p /data \
-    && chown -R app:app /app /data
+    && mkdir -p /data /run/secrets \
+    && touch /run/secrets/resend_api_key \
+    && chown -R app:app /app /data /run/secrets
 USER app
 
 EXPOSE 8000 8443

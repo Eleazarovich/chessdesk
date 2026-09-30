@@ -113,10 +113,32 @@ limits shared by workers and retained across restarts:
 | Login | 30/minute | 10/15 minutes | 300/minute |
 | Signup | 5/hour | — | 50/hour |
 | Password reset | 10/hour | 3/hour | — |
+| Confirm password reset | 10/hour | — | — |
 
 Limits count requests, use fixed windows, and return HTTP 429 with `Retry-After`.
 Password hashing runs in the worker pool, with at most four concurrent hashes
 per process. Rate policies are in `backend/rate_limit.py`.
+
+## Password reset email
+
+Password reset uses Resend for delivery. Reset tokens are stored as SHA-256
+digests, expire after 30 minutes, can be used once, and revoke the coach's
+active sessions when the password changes. The request endpoint responds the
+same way for registered and unregistered emails.
+
+Configure these values to send reset emails:
+
+| Variable | Purpose |
+| --- | --- |
+| `RESEND_API_KEY` | Resend API key. Production deployment can instead read it from the mounted `RESEND_API_KEY_FILE`. |
+| `CHESSDESK_EMAIL_FROM` | Verified sender address, such as `ChessDesk <no-reply@example.com>`. |
+| `CHESSDESK_PUBLIC_URL` | HTTPS origin coaches use to open ChessDesk, without a path. |
+
+The public URL should match the CloudFront `SiteUrl` output in hosted
+deployments. Local Compose defaults it to `http://localhost:8000`. With no
+Resend key, sender, or public URL, the reset endpoint returns a generic service
+unavailable response. The frontend displays a retry message; it does not
+expose whether an email is registered.
 
 Only the hosted EC2 deployment sets `CHESSDESK_TRUST_CLOUDFRONT=true`. It relies
 on the origin security group accepting traffic exclusively from CloudFront

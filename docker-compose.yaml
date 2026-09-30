@@ -20,6 +20,9 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://chessdesk:chessdesk@postgres:5432/chessdesk
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      CHESSDESK_EMAIL_FROM: ${CHESSDESK_EMAIL_FROM:-}
+      CHESSDESK_PUBLIC_URL: ${CHESSDESK_PUBLIC_URL:-http://localhost:8000}
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=development,service.version=0.1.0
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}

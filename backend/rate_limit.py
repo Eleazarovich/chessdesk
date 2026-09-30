@@ -17,6 +17,7 @@ AUTH_LIMITS = {
     "login": (("ip", 30, 60), ("account", 10, 900), ("global", 300, 60)),
     "signup": (("ip", 5, 3600), ("global", 50, 3600)),
     "reset": (("ip", 10, 3600), ("account", 3, 3600)),
+    "reset_confirm": (("ip", 10, 3600),),
 }
 
 

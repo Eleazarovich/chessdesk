@@ -143,6 +143,14 @@ class TokenORM(Base):
     expires_at: Mapped[int] = mapped_column(BigInteger, index=True)
 
 
+class PasswordResetTokenORM(Base):
+    __tablename__ = "password_reset_tokens"
+
+    token_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    expires_at: Mapped[int] = mapped_column(BigInteger, index=True)
+
+
 class AuthRateLimitORM(Base):
     __tablename__ = "auth_rate_limits"
 

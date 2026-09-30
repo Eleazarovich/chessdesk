@@ -54,6 +54,14 @@ export const authService = {
     await apiClient.post('/auth/password/reset', { email });
   },
 
+  async confirmPasswordReset(token: string, password: string): Promise<void> {
+    await apiClient.post('/auth/password/reset/confirm', { token, password });
+    apiClient.clearAccessToken();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+  },
+
   getStoredUser(): AuthUser | null {
     if (typeof window === 'undefined') return null;
     try {

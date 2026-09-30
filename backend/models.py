@@ -92,6 +92,11 @@ class ResetPasswordRequest(APIModel):
     email: EmailStr
 
 
+class ConfirmPasswordResetRequest(APIModel):
+    token: str = Field(min_length=32, max_length=256)
+    password: str = Field(min_length=8, max_length=1024)
+
+
 class AuthUser(APIModel):
     id: str
     email: EmailStr

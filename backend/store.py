@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -27,6 +27,7 @@ from .database import (
     InvoiceORM,
     InvoiceSessionORM,
     NotificationORM,
+    PasswordResetTokenORM,
     SchoolDetailsORM,
     SessionParticipantORM,
     TokenORM,
@@ -171,6 +172,10 @@ class Store:
 
             user_row = db.get(UserORM, coach.id)
             if user_row is not None:
+                if user_row.email.casefold() != str(coach.email).casefold():
+                    db.execute(delete(PasswordResetTokenORM).where(
+                        PasswordResetTokenORM.user_id == coach.id,
+                    ))
                 user_row.name = coach.name
                 user_row.email = str(coach.email)
 
@@ -183,6 +188,53 @@ class Store:
                 user_id=user_id,
                 expires_at=now + TOKEN_TTL_SECONDS,
             ))
+
+    def issue_password_reset_token(self, token_digest: str, user_id: str, expires_at: int) -> None:
+        with session_scope(self.session_factory) as db:
+            now = int(time.time())
+            db.execute(delete(PasswordResetTokenORM).where(
+                or_(
+                    PasswordResetTokenORM.expires_at <= now,
+                    PasswordResetTokenORM.user_id == user_id,
+                ),
+            ))
+            db.add(PasswordResetTokenORM(
+                token_digest=token_digest,
+                user_id=user_id,
+                expires_at=expires_at,
+            ))
+
+    def revoke_password_reset_token(self, token_digest: str) -> None:
+        with session_scope(self.session_factory) as db:
+            db.execute(delete(PasswordResetTokenORM).where(
+                PasswordResetTokenORM.token_digest == token_digest,
+            ))
+
+    def consume_password_reset_token(self, token_digest: str, password_hash: str) -> bool:
+        """Atomically consume a valid reset token, change the password, and revoke sessions."""
+
+        with session_scope(self.session_factory) as db:
+            user_id = db.scalar(
+                delete(PasswordResetTokenORM)
+                .where(
+                    PasswordResetTokenORM.token_digest == token_digest,
+                    PasswordResetTokenORM.expires_at > int(time.time()),
+                )
+                .returning(PasswordResetTokenORM.user_id),
+            )
+            if user_id is None:
+                return False
+
+            db.execute(
+                update(UserORM)
+                .where(UserORM.id == user_id)
+                .values(password_hash=password_hash),
+            )
+            db.execute(delete(TokenORM).where(TokenORM.user_id == user_id))
+            db.execute(delete(PasswordResetTokenORM).where(
+                PasswordResetTokenORM.user_id == user_id,
+            ))
+            return True
 
     def revoke_token(self, token: str | None) -> None:
         if token is None:
