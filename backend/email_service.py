@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import os
+import re
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -75,7 +76,22 @@ def send_password_reset_email(
             ),
         })
     except Exception as error:
-        logger.warning("Password reset email delivery failed (%s).", type(error).__name__)
+        error_type = getattr(error, "error_type", type(error).__name__)
+        error_code = getattr(error, "code", "unknown")
+        detail = str(getattr(error, "message", error)).replace("\n", " ")
+        detail = re.sub(
+            r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b",
+            r"[email]@\1",
+            detail,
+            flags=re.IGNORECASE,
+        )
+        detail = re.sub(r"https?://[^\s\"'<>]+", "[url]", detail)
+        logger.warning(
+            "Password reset email delivery failed (provider_error=%s, code=%s, message=%s).",
+            error_type,
+            error_code,
+            detail[:300],
+        )
         return False
 
     return True
