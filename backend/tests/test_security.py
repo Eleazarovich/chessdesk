@@ -60,7 +60,9 @@ def test_login_account_limit_rejects_before_password_hashing(monkeypatch) -> Non
     assert len(calls) == 10
 
 
-def test_ip_limit_cannot_be_bypassed_with_random_emails_or_forwarded_headers() -> None:
+def test_ip_limit_cannot_be_bypassed_with_random_emails_or_forwarded_headers(monkeypatch) -> None:
+    now = int(time.time())
+    monkeypatch.setattr("backend.rate_limit.time.time", lambda: now)
     for index in range(31):
         response = request(
             "POST", "/api/v1/auth/login",
@@ -72,6 +74,8 @@ def test_ip_limit_cannot_be_bypassed_with_random_emails_or_forwarded_headers() -
 
 def test_cloudfront_uses_rightmost_viewer_address(monkeypatch) -> None:
     monkeypatch.setenv("CHESSDESK_TRUST_CLOUDFRONT", "true")
+    now = int(time.time())
+    monkeypatch.setattr("backend.rate_limit.time.time", lambda: now)
     for index in range(31):
         response = request(
             "POST", "/api/v1/auth/login",
