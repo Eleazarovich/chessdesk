@@ -8,9 +8,11 @@ interface DateTimeInputProps extends Omit<React.InputHTMLAttributes<HTMLInputEle
   type: PickerType;
   /** The selected date used to constrain a time picker to the present. */
   dateValue?: string;
+  /** Allow dates and times in the past, for recording completed work. */
+  allowPast?: boolean;
 }
 
-export default function DateTimeInput({ type, dateValue, min, onClick, ...props }: DateTimeInputProps) {
+export default function DateTimeInput({ type, dateValue, min, allowPast = false, onClick, ...props }: DateTimeInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [today, setToday] = useState('');
   const [currentTime, setCurrentTime] = useState('');
@@ -28,11 +30,13 @@ export default function DateTimeInput({ type, dateValue, min, onClick, ...props 
   }, []);
 
   const minimum = min ?? (
-    type === 'date'
-      ? today
-      : dateValue === today
-        ? currentTime
-        : undefined
+    allowPast
+      ? undefined
+      : type === 'date'
+        ? today
+        : dateValue === today
+          ? currentTime
+          : undefined
   );
 
   const openPicker = (event: React.MouseEvent<HTMLInputElement>) => {

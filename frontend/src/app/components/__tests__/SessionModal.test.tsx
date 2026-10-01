@@ -62,6 +62,41 @@ describe('SessionModal scheduling categories', () => {
     expect(onSuccess).toHaveBeenCalledWith(createdSession);
   });
 
+  it('allows a coach to mark a past session completed', async () => {
+    const pastSession: Session = {
+      ...createdSession,
+      id: 'session-past',
+      client_id: 'client-001',
+      participant_ids: ['client-001'],
+      date: '2020-01-10',
+      start_time: '10:00',
+      status: 'scheduled',
+    };
+    const completedSession = { ...pastSession, status: 'completed' as const };
+    const updateSession = vi.spyOn(sessionService, 'updateSession').mockResolvedValue(completedSession);
+    const onSuccess = vi.fn();
+
+    render(
+      <SessionModal
+        open
+        onClose={vi.fn()}
+        onSuccess={onSuccess}
+        clients={clients}
+        editSession={pastSession}
+      />,
+    );
+
+    fireEvent.change(screen.getByDisplayValue('Scheduled'), { target: { value: 'completed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => expect(updateSession).toHaveBeenCalledWith('session-past', expect.objectContaining({
+      date: '2020-01-10',
+      start_time: '10:00',
+      status: 'completed',
+    })));
+    expect(onSuccess).toHaveBeenCalledWith(completedSession);
+  });
+
   it('creates a regular single-student session when one student is selected', async () => {
     vi.spyOn(authService, 'getCurrentCoachId').mockReturnValue('coach-001');
     const singleSession = { ...createdSession, client_id: 'client-002', participant_ids: ['client-002'] };
