@@ -62,39 +62,67 @@ describe('SessionModal scheduling categories', () => {
     expect(onSuccess).toHaveBeenCalledWith(createdSession);
   });
 
-  it('allows a coach to mark a past session completed', async () => {
-    const pastSession: Session = {
-      ...createdSession,
-      id: 'session-past',
-      client_id: 'client-001',
-      participant_ids: ['client-001'],
-      date: '2020-01-10',
-      start_time: '10:00',
-      status: 'scheduled',
-    };
-    const completedSession = { ...pastSession, status: 'completed' as const };
-    const updateSession = vi.spyOn(sessionService, 'updateSession').mockResolvedValue(completedSession);
+  it.each([
+    ['scheduled', 'completed'],
+    ['scheduled', 'cancelled'],
+    ['completed', 'scheduled'],
+    ['completed', 'cancelled'],
+    ['cancelled', 'scheduled'],
+    ['cancelled', 'completed'],
+  ] as const)(
+    'allows a past %s session to change to %s',
+    async (currentStatus, status) => {
+      const pastSession: Session = {
+        ...createdSession,
+        id: 'session-past',
+        client_id: 'client-001',
+        participant_ids: ['client-001'],
+        date: '2020-01-10',
+        start_time: '10:00',
+        status: currentStatus,
+      };
+      const updatedSession = { ...pastSession, status };
+      const updateSession = vi.spyOn(sessionService, 'updateSession').mockResolvedValue(updatedSession);
+      const onSuccess = vi.fn();
+
+      render(
+        <SessionModal
+          open
+          onClose={vi.fn()}
+          onSuccess={onSuccess}
+          clients={clients}
+          editSession={pastSession}
+        />,
+      );
+
+      fireEvent.change(document.querySelectorAll('select')[1], { target: { value: status } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+      await waitFor(() => expect(updateSession).toHaveBeenCalledWith('session-past', expect.objectContaining({
+        date: '2020-01-10',
+        start_time: '10:00',
+        status,
+      })));
+      expect(onSuccess).toHaveBeenCalledWith(updatedSession);
+    },
+  );
+
+  it('keeps new sessions restricted to current or future dates', async () => {
+    vi.spyOn(authService, 'getCurrentCoachId').mockReturnValue('coach-001');
+    const createSession = vi.spyOn(sessionService, 'createSession').mockResolvedValue(createdSession);
     const onSuccess = vi.fn();
 
-    render(
-      <SessionModal
-        open
-        onClose={vi.fn()}
-        onSuccess={onSuccess}
-        clients={clients}
-        editSession={pastSession}
-      />,
-    );
+    render(<SessionModal open onClose={vi.fn()} onSuccess={onSuccess} clients={clients} />);
 
-    fireEvent.change(screen.getByDisplayValue('Scheduled'), { target: { value: 'completed' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Students' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Amahle Dlamini' }));
+    fireEvent.change(document.querySelector('input[type="date"]')!, { target: { value: '2020-01-10' } });
+    fireEvent.change(document.querySelector('input[type="time"]')!, { target: { value: '10:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Session' }));
 
-    await waitFor(() => expect(updateSession).toHaveBeenCalledWith('session-past', expect.objectContaining({
-      date: '2020-01-10',
-      start_time: '10:00',
-      status: 'completed',
-    })));
-    expect(onSuccess).toHaveBeenCalledWith(completedSession);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Date cannot be in the past.');
+    expect(createSession).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it('creates a regular single-student session when one student is selected', async () => {

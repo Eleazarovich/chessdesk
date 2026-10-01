@@ -71,6 +71,9 @@ export default function SessionModal({
   templateSession,
 }: SessionModalProps) {
   const isEdit = !!editSession;
+  const canEditHistoricalSession = Boolean(
+    editSession && !isCurrentOrFutureDate(editSession.date),
+  );
   const [form, setForm] = useState<SessionFormData>(() => initialForm(editSession, templateSession, initialClientId, clients));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -115,17 +118,14 @@ export default function SessionModal({
       setError(`Choose ${targetError}, then enter a date and start time.`);
       return;
     }
-    if (form.status !== 'completed') {
-      if (!isCurrentOrFutureDate(form.date)) {
-        setError('Date cannot be in the past.');
-        return;
-      }
-      if (!isCurrentOrFutureDateTime(form.date, form.start_time)) {
-        setError('Start time cannot be in the past.');
-        return;
-      }
+    if (!canEditHistoricalSession && !isCurrentOrFutureDate(form.date)) {
+      setError('Date cannot be in the past.');
+      return;
     }
-
+    if (!canEditHistoricalSession && !isCurrentOrFutureDateTime(form.date, form.start_time)) {
+      setError('Start time cannot be in the past.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -238,11 +238,11 @@ export default function SessionModal({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Date *</label>
-            <DateTimeInput type="date" allowPast={form.status === 'completed'} value={form.date} onChange={event => set('date', event.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
+            <DateTimeInput type="date" allowPast={canEditHistoricalSession} value={form.date} onChange={event => set('date', event.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
           </div>
           <div className="space-y-1.5">
             <label className="block text-sm font-medium" style={{ color: 'var(--foreground-muted)' }}>Start Time *</label>
-            <DateTimeInput type="time" dateValue={form.date} allowPast={form.status === 'completed'} value={form.start_time} onChange={event => set('start_time', event.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
+            <DateTimeInput type="time" dateValue={form.date} allowPast={canEditHistoricalSession} value={form.start_time} onChange={event => set('start_time', event.target.value)} className="w-full px-3 py-2 text-sm input-dark" />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
